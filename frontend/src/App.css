@@ -202,6 +202,18 @@ td small{display:block;color:#9aa6a0;font-size:10px;margin-top:4px}
 .login-credit{margin-top:auto;font-size:11px;color:#8ea59d;letter-spacing:.05em}
 .login-credit strong{color:#d9a86c;font-weight:700;letter-spacing:.08em}
 
+/* ============ Supplier detail ============ */
+.clickable-row{cursor:pointer;transition:background .18s}
+.clickable-row:hover{background:#f5f8f5}
+.supplier-header{margin-bottom:22px}
+.supplier-header .eyebrow{color:var(--teal);margin:0 0 8px}
+.supplier-header h1{font:800 clamp(24px,3vw,34px) Manrope;margin:0;letter-spacing:-.02em}
+.supplier-code{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.supplier-info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}
+.info-card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.info-label{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);font-weight:700;display:flex;gap:5px;align-items:center}
+.info-card strong{font-size:13px;color:var(--ink);font-weight:600;word-break:break-word}
+
 /* ============ Login page ============ */
 .login-shell{display:grid;grid-template-columns:1.05fr 1fr;min-height:100vh;background:linear-gradient(135deg,#1d2926 0%,#264039 100%)}
 .login-left{padding:60px;color:#dce7e1;display:flex;flex-direction:column;justify-content:space-between}

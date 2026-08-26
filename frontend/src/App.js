@@ -15,6 +15,7 @@ import HPPPage from "./pages/HPPPage";
 import FlashCostPage from "./pages/FlashCostPage";
 import RevenuePage from "./pages/RevenuePage";
 import SuppliersPage from "./pages/SuppliersPage";
+import SupplierDetailPage from "./pages/SupplierDetailPage";
 import UsersPage from "./pages/UsersPage";
 import { api } from "./lib/api";
 
@@ -57,6 +58,7 @@ function ProtectedShell() {
         <Route path="/dashboard" element={<Dashboard onNavigateTo={() => {}} />} />
         <Route path="/inventory" element={<InventoryPage outlet={outletCode} />} />
         <Route path="/suppliers" element={<SuppliersPage />} />
+        <Route path="/suppliers/:supplierId" element={<SupplierDetailPage />} />
         <Route path="/orders" element={<OrdersPage />} />
         <Route path="/receiving" element={<ReceivingPage />} />
         <Route path="/issues" element={<IssuesPage />} />

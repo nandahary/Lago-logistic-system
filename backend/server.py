@@ -422,6 +422,54 @@ async def delete_supplier(
     return {"deleted": True}
 
 
+@api.get("/suppliers/{supplier_id}")
+async def get_supplier(supplier_id: str, user: dict = Depends(get_current_user)):
+    doc = await db.suppliers.find_one({"_id": to_oid(supplier_id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Supplier tidak ditemukan")
+    return serialize_doc(doc)
+
+
+@api.get("/suppliers/{supplier_id}/orders")
+async def supplier_orders(supplier_id: str, user: dict = Depends(get_current_user)):
+    """Return purchase orders that reference this supplier (by name match)."""
+    supplier = await db.suppliers.find_one({"_id": to_oid(supplier_id)})
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Supplier tidak ditemukan")
+    # Match by exact supplier name (POs store name as string)
+    orders = (
+        await db.purchase_orders.find({"supplier": supplier["name"]})
+        .sort("created_at", -1)
+        .to_list(500)
+    )
+    orders_out = [serialize_doc(o) for o in orders]
+    # Compute aggregates
+    total_value = sum(float(o.get("total", 0)) for o in orders_out)
+    by_status: Dict[str, int] = {}
+    for o in orders_out:
+        by_status[o["status"]] = by_status.get(o["status"], 0) + 1
+    # Recent GRNs from this supplier
+    grns = (
+        await db.receivings.find({"supplier": supplier["name"]})
+        .sort("received_at", -1)
+        .to_list(100)
+    )
+    grns_out = [serialize_doc(g) for g in grns]
+    total_grn = sum(float(g.get("total", 0)) for g in grns_out)
+    return {
+        "supplier": serialize_doc(supplier),
+        "orders": orders_out,
+        "receivings": grns_out,
+        "stats": {
+            "order_count": len(orders_out),
+            "order_total": total_value,
+            "grn_count": len(grns_out),
+            "grn_total": total_grn,
+            "by_status": by_status,
+        },
+    }
+
+
 @api.post("/suppliers/bulk-upload")
 async def suppliers_bulk_upload(
     file: UploadFile = File(...),
@@ -530,9 +578,11 @@ async def list_items(
 async def create_item(
     payload: ItemIn, user: dict = Depends(require_roles("admin", "purchasing", "warehouse"))
 ):
-    sku = payload.sku or await next_sku()
+    if not payload.sku or not payload.sku.strip():
+        raise HTTPException(status_code=400, detail="Kode SKU wajib diisi")
+    sku = payload.sku.strip()
     if await db.items.find_one({"sku": sku}):
-        raise HTTPException(status_code=400, detail="SKU sudah ada")
+        raise HTTPException(status_code=400, detail=f"SKU '{sku}' sudah digunakan")
     doc = payload.model_dump()
     doc["sku"] = sku
     doc["created_at"] = iso(now_utc())
@@ -1125,7 +1175,10 @@ async def items_bulk_upload(
             if not name:
                 errors.append(f"Baris {i}: nama barang kosong")
                 continue
-            sku = r.get("sku", "").strip() or await next_sku()
+            sku = r.get("sku", "").strip()
+            if not sku:
+                errors.append(f"Baris {i}: kolom sku wajib diisi")
+                continue
             doc = {
                 "sku": sku,
                 "name": name,
@@ -1138,7 +1191,7 @@ async def items_bulk_upload(
                 "outlet_code": r.get("outlet_code", "main_wh") or "main_wh",
                 "updated_at": iso(now_utc()),
             }
-            existing = await db.items.find_one({"sku": sku}) if r.get("sku") else None
+            existing = await db.items.find_one({"sku": sku})
             if existing:
                 await db.items.update_one({"_id": existing["_id"]}, {"$set": doc})
                 updated += 1
@@ -1592,40 +1645,9 @@ async def seed_data():
     # for code, name, contact, phone, email, address, lead, terms in seed_suppliers:
     #     await db.suppliers.update_one(...)
 
-    # Items
-    if await db.items.count_documents({}) == 0:
-        seed_items = [
-            # sku, name, category, unit, stock, min_stock, cost, outlet, supplier
-            ("PRT-0001", "Daging sapi tenderloin", "Protein", "kg", 45, 20, 185000, "kitchen", "PT Boga Utama"),
-            ("DRY-0001", "Beras premium jasmine", "Dry goods", "kg", 250, 100, 18000, "kitchen", "CV Tani Makmur"),
-            ("DRY-0002", "Minyak goreng Filma 5L", "Dry goods", "carton", 12, 15, 125000, "kitchen", "PT Sinar Mas"),
-            ("BEV-0001", "Whisky Jameson 750ml", "Beverage", "pcs", 8, 10, 450000, "bar", "PT Pernod Ricard"),
-            ("AMN-0001", "Shampoo hotel sachet", "Amenities", "pcs", 1200, 500, 1500, "housekeeping", "CV Amenity"),
-            ("PRT-0002", "Fresh salmon fillet", "Protein", "kg", 14, 10, 220000, "kitchen", "PT Ocean Fresh"),
-            ("DRY-0003", "Susu UHT full cream 1L", "Dairy", "pcs", 60, 30, 22000, "kitchen", "PT Frisian"),
-            ("BEV-0002", "Wine merlot Australia", "Beverage", "pcs", 22, 12, 380000, "bar", "PT Cellar Master"),
-            ("AMN-0002", "Bed sheet king size", "Amenities", "pcs", 45, 20, 320000, "housekeeping", "PT Textile Jaya"),
-            ("PRT-0003", "Ayam broiler segar", "Protein", "kg", 32, 15, 45000, "kitchen", "PT Charoen"),
-            ("VEG-0001", "Tomat merah segar", "Vegetable", "kg", 25, 15, 15000, "kitchen", "CV Kebun Segar"),
-            ("VEG-0002", "Bawang bombay", "Vegetable", "kg", 18, 10, 22000, "kitchen", "CV Kebun Segar"),
-            ("BEV-0003", "Kopi arabica bali roasted", "Beverage", "kg", 8, 5, 320000, "bar", "PT Kopi Bali"),
-        ]
-        for sku, name, cat, unit, stock, mn, cost, outlet, sup in seed_items:
-            await db.items.insert_one(
-                {
-                    "sku": sku,
-                    "name": name,
-                    "category": cat,
-                    "unit": unit,
-                    "stock": stock,
-                    "min_stock": mn,
-                    "cost": cost,
-                    "outlet_code": outlet,
-                    "supplier": sup,
-                    "created_at": iso(now_utc()),
-                    "updated_at": iso(now_utc()),
-                }
-            )
+    # Seed items — removed per user request. Users add items manually with custom SKU.
+    # (Kode seeding barang di-disable. Uncomment blok di bawah untuk mengaktifkan kembali.)
+    # if await db.items.count_documents({}) == 0: ...
 
     # Sample PO removed per user request — collection remains empty on fresh install.
 

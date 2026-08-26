@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Plus, Check, Trash2, Search, Pencil, Upload } from "lucide-react";
+import { Plus, Check, Trash2, Search, Pencil, Upload, ChevronRight } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { PageIntro, PanelHead, Modal, Field, Badge } from "../components/UI";
 import { BulkUploadDialog } from "../components/BulkUpload";
@@ -16,6 +17,7 @@ const TEMPLATE = {
 
 export default function SuppliersPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [list, setList] = useState([]);
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState(null); // {mode:"new"|"edit", data:{}}
@@ -152,9 +154,16 @@ export default function SuppliersPage() {
                 <tr><td colSpan={7} style={{ textAlign: "center", padding: 40 }}>Belum ada supplier.</td></tr>
               )}
               {list.map((s) => (
-                <tr key={s.id} data-testid={`supplier-row-${s.id}`}>
+                <tr
+                  key={s.id}
+                  data-testid={`supplier-row-${s.id}`}
+                  className="clickable-row"
+                  onClick={() => navigate(`/suppliers/${s.id}`)}
+                >
                   <td>
-                    <strong>{s.name}</strong>
+                    <strong>
+                      {s.name} <ChevronRight size={12} style={{ verticalAlign: "middle", color: "#7d8a86" }} />
+                    </strong>
                     <small><Badge tone="neutral">{s.code}</Badge></small>
                   </td>
                   <td>{s.contact_person || "-"}</td>
@@ -170,7 +179,7 @@ export default function SuppliersPage() {
                     )}
                   </td>
                   <td>{s.payment_terms || "-"}</td>
-                  <td style={{ textAlign: "right" }}>
+                  <td style={{ textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
                     {canEdit && (
                       <button
                         data-testid={`supplier-edit-${s.id}`}

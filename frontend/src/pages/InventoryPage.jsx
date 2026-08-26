@@ -8,10 +8,10 @@ import { PageIntro, Modal, Field, SelectField, Badge } from "../components/UI";
 import { BulkUploadDialog } from "../components/BulkUpload";
 
 const ITEMS_TEMPLATE = {
-  headers: ["name", "category", "unit", "cost", "min_stock", "stock", "supplier", "outlet_code"],
+  headers: ["sku", "name", "category", "unit", "cost", "min_stock", "stock", "supplier", "outlet_code"],
   example: [
-    ["Fresh ribeye 200g", "Protein", "kg", "225000", "10", "20", "PT Boga Utama", "kitchen"],
-    ["Botol air mineral 500ml", "Beverage", "carton", "45000", "20", "40", "CV Aqua", "bar"],
+    ["PRT-001", "Fresh ribeye 200g", "Protein", "kg", "225000", "10", "20", "PT Boga Utama", "kitchen"],
+    ["BEV-042", "Botol air mineral 500ml", "Beverage", "carton", "45000", "20", "40", "CV Aqua", "bar"],
   ],
 };
 
@@ -46,10 +46,12 @@ export default function InventoryPage({ outlet }) {
   const save = async (e) => {
     e.preventDefault();
     if (!form.name) return toast.error("Nama barang wajib diisi");
+    if (!form.sku || !form.sku.trim()) return toast.error("Kode SKU wajib diisi manual");
     setSaving(true);
     try {
       await api.post("/items", {
         ...form,
+        sku: form.sku.trim(),
         cost: Number(form.cost || 0),
         min_stock: Number(form.min_stock || 0),
         stock: Number(form.stock || 0),
@@ -158,7 +160,7 @@ export default function InventoryPage({ outlet }) {
         <Modal title="Tambah barang master" onClose={() => setModal(null)}>
           <form className="form-grid" onSubmit={save}>
             <Field label="Nama barang" testid="item-name-input" value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder="Contoh: Fresh ribeye 200g" />
-            <Field label="Kode SKU (opsional)" testid="item-sku-input" value={form.sku || ""} onChange={(v) => setForm({ ...form, sku: v })} placeholder="Auto-generate jika kosong" />
+            <Field label="Kode SKU (wajib)" testid="item-sku-input" value={form.sku || ""} onChange={(v) => setForm({ ...form, sku: v })} placeholder="Contoh: PRT-001 / BEV-042" required />
             <Field label="Supplier utama" testid="item-supplier-input" value={form.supplier} onChange={(v) => setForm({ ...form, supplier: v })} placeholder="Nama supplier" />
             <SelectField label="Kategori" testid="item-category-select" value={form.category} onChange={(v) => setForm({ ...form, category: v })} options={["Protein", "Dry goods", "Beverage", "Dairy", "Amenities", "Vegetable", "Other"]} />
             <SelectField
@@ -191,8 +193,9 @@ export default function InventoryPage({ outlet }) {
           templateExample={ITEMS_TEMPLATE.example}
           instructions={
             <>
-              Gunakan kolom <b>outlet_code</b>: main_wh, kitchen, bar, housekeeping. Jika kolom
-              <b> sku</b> disertakan dan sudah ada, item akan di-update.
+              Gunakan kolom <b>outlet_code</b>: main_wh, kitchen, bar, housekeeping, dusk, dawn,
+              pontoon, beach_house, sundeck, firm, kitchen_dusk, kitchen_boh, office. Kolom{" "}
+              <b>sku</b> wajib diisi dan unik. Jika SKU sudah ada, item akan di-update.
             </>
           }
           onClose={() => setModal(null)}
