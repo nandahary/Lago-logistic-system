@@ -4,15 +4,15 @@ import { formatApiErrorDetail } from "../lib/api";
 import { toast } from "sonner";
 
 const demoAccounts = [
-  { label: "Admin", email: "admin@hinto.id", password: "admin123" },
-  { label: "Purchasing", email: "purchasing@hinto.id", password: "demo123" },
-  { label: "Gudang", email: "warehouse@hinto.id", password: "demo123" },
-  { label: "Finance", email: "finance@hinto.id", password: "demo123" },
+  { label: "Admin", email: "admin@lagobali.com", password: "admin123" },
+  { label: "Purchasing", email: "purchasing@lagobali.com", password: "demo123" },
+  { label: "Gudang", email: "warehouse@lagobali.com", password: "demo123" },
+  { label: "Finance", email: "finance@lagobali.com", password: "demo123" },
 ];
 
 export default function Login() {
   const { login } = useAuth();
-  const [email, setEmail] = useState("admin@hinto.id");
+  const [email, setEmail] = useState("admin@lagobali.com");
   const [password, setPassword] = useState("admin123");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

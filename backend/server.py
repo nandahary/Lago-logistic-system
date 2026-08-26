@@ -1537,13 +1537,13 @@ async def analytics(days: int = 7, user: dict = Depends(get_current_user)):
 # ==============================================================================
 async def seed_data():
     # Users
-    admin_email = os.environ.get("ADMIN_EMAIL", "admin@hinto.id").lower()
+    admin_email = os.environ.get("ADMIN_EMAIL", "admin@lagobali.com").lower()
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
     demo_users = [
-        {"email": admin_email, "password": admin_password, "name": "Admin HINTO", "role": "admin"},
-        {"email": "purchasing@hinto.id", "password": "demo123", "name": "Rina (Purchasing)", "role": "purchasing"},
-        {"email": "warehouse@hinto.id", "password": "demo123", "name": "Budi (Gudang)", "role": "warehouse"},
-        {"email": "finance@hinto.id", "password": "demo123", "name": "Sari (Finance)", "role": "finance"},
+        {"email": admin_email, "password": admin_password, "name": "Admin Lago Bali", "role": "admin"},
+        {"email": "purchasing@lagobali.com", "password": "demo123", "name": "Rina (Purchasing)", "role": "purchasing"},
+        {"email": "warehouse@lagobali.com", "password": "demo123", "name": "Budi (Gudang)", "role": "warehouse"},
+        {"email": "finance@lagobali.com", "password": "demo123", "name": "Sari (Finance)", "role": "finance"},
     ]
     for u in demo_users:
         existing = await db.users.find_one({"email": u["email"]})
