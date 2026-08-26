@@ -34,8 +34,8 @@ const iconFor = (t) => (t === "receiving" ? Truck : t === "opname" ? ClipboardCh
 
 const compactMoney = (v) => {
   const n = Number(v || 0);
-  if (n >= 1_000_000_000) return `Rp${(n / 1_000_000_000).toFixed(1)}M`;
-  if (n >= 1_000_000) return `Rp${(n / 1_000_000).toFixed(1)}Jt`;
+  if (n >= 1_000_000_000) return `Rp${(n / 1_000_000_000).toFixed(1)}B`;
+  if (n >= 1_000_000) return `Rp${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `Rp${(n / 1_000).toFixed(0)}K`;
   return `Rp${n}`;
 };
@@ -50,11 +50,11 @@ export default function Dashboard() {
     api.get("/analytics", { params: { days: 7 } }).then((r) => setAna(r.data));
   }, []);
 
-  if (!data || !ana) return <div className="loading-state">Memuat...</div>;
+  if (!data || !ana) return <div className="loading-state">Loading...</div>;
 
   const trendData = ana.trend.map((t) => ({
     ...t,
-    label: new Date(t.date).toLocaleDateString("id-ID", { day: "2-digit", month: "short" }),
+    label: new Date(t.date).toLocaleDateString("en-US", { day: "2-digit", month: "short" }),
   }));
   const topConsumed = ana.top_consumed.map((t) => ({
     ...t,
@@ -64,9 +64,9 @@ export default function Dashboard() {
   return (
     <>
       <PageIntro
-        eyebrow={`${new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} · Lago Bali`}
-        title="Kontrol inventory, tanpa tebakan."
-        subtitle="Satu pandangan untuk stok, pembelian, dan cost control seluruh outlet."
+        eyebrow={`${new Date().toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} · Lago Bali`}
+        title="Inventory control, no guesswork."
+        subtitle="One view for stock, purchasing, and cost control across all outlets."
         testid="dashboard-title"
         action={
           <button
@@ -74,23 +74,23 @@ export default function Dashboard() {
             className="primary-button"
             onClick={() => navigate("/inventory")}
           >
-            <Plus size={17} /> Tambah barang
+            <Plus size={17} /> Add item
           </button>
         }
       />
       <div className="metric-grid">
-        <Metric label="Valuasi inventory" value={money(data.valuation)} note="Total nilai stok sistem" tone="teal" testid="metric-valuation" />
-        <Metric label="Stok menipis" value={`${data.low_stock_count} item`} note="Di bawah minimum stok" tone="amber" testid="metric-low-stock" />
-        <Metric label="PO menunggu" value={`${data.pending_po} PO`} note="Menunggu approval Finance" tone="blue" testid="metric-pending-po" />
-        <Metric label="Flash cost hari ini" value={`${data.flash_cost_pct}%`} note="Konsumsi vs revenue" tone="green" testid="metric-flash-cost" />
+        <Metric label="Inventory valuation" value={money(data.valuation)} note="Total system stock value" tone="teal" testid="metric-valuation" />
+        <Metric label="Low stock" value={`${data.low_stock_count} items`} note="Below minimum stock level" tone="amber" testid="metric-low-stock" />
+        <Metric label="PO awaiting" value={`${data.pending_po} PO`} note="Awaiting Finance approval" tone="blue" testid="metric-pending-po" />
+        <Metric label="Flash cost today" value={`${data.flash_cost_pct}%`} note="Consumption vs revenue" tone="green" testid="metric-flash-cost" />
       </div>
 
       {/* Analytics row 1: trend + top consumed */}
       <div className="analytics-grid">
         <section className="panel" data-testid="analytics-trend">
           <PanelHead
-            title="Tren flash cost 7 hari"
-            detail={`Total belanja PO ${compactMoney(ana.procurement.po_total)} · GRN ${compactMoney(ana.procurement.grn_total)}`}
+            title="7-day flash cost trend"
+            detail={`PO spend ${compactMoney(ana.procurement.po_total)} · GRN ${compactMoney(ana.procurement.grn_total)}`}
           />
           <div className="chart-body">
             <ResponsiveContainer width="100%" height={220}>
@@ -109,7 +109,7 @@ export default function Dashboard() {
                   labelStyle={{ fontSize: 12, fontWeight: 600 }}
                   contentStyle={{ borderRadius: 8, border: "1px solid #e4e9e5", fontSize: 11 }}
                 />
-                <Area type="monotone" dataKey="cost" name="Konsumsi" stroke="#167a6c" fill="url(#costFill)" strokeWidth={2} />
+                <Area type="monotone" dataKey="cost" name="Consumption" stroke="#167a6c" fill="url(#costFill)" strokeWidth={2} />
                 <Area type="monotone" dataKey="revenue" name="Revenue" stroke="#d9a86c" fill="none" strokeWidth={2} strokeDasharray="4 4" />
               </AreaChart>
             </ResponsiveContainer>
@@ -117,10 +117,10 @@ export default function Dashboard() {
         </section>
 
         <section className="panel" data-testid="analytics-top-consumed">
-          <PanelHead title="Item paling banyak dikonsumsi" detail="7 hari terakhir · berdasarkan nilai" />
+          <PanelHead title="Top consumed items" detail="Last 7 days · by value" />
           <div className="chart-body">
             {topConsumed.length === 0 ? (
-              <div className="empty-hint">Belum ada barang keluar dalam 7 hari.</div>
+              <div className="empty-hint">No stock-out in last 7 days.</div>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={topConsumed} layout="vertical" margin={{ top: 5, right: 20, left: 20, bottom: 0 }}>
@@ -142,10 +142,10 @@ export default function Dashboard() {
       {/* Analytics row 2: category donut + outlet valuation */}
       <div className="analytics-grid">
         <section className="panel" data-testid="analytics-categories">
-          <PanelHead title="Distribusi nilai stok per kategori" detail="Valuasi berdasarkan HPP × stok" />
+          <PanelHead title="Stock value distribution by category" detail="Valuation based on COGS × stock" />
           <div className="chart-body split">
             {ana.categories.length === 0 ? (
-              <div className="empty-hint">Tidak ada data.</div>
+              <div className="empty-hint">No data.</div>
             ) : (
               <>
                 <ResponsiveContainer width="55%" height={220}>
@@ -173,10 +173,10 @@ export default function Dashboard() {
         </section>
 
         <section className="panel" data-testid="analytics-outlets">
-          <PanelHead title="Nilai stok per outlet" detail="Distribusi lintas outlet" />
+          <PanelHead title="Stock value per outlet" detail="Distribution across outlets" />
           <div className="chart-body">
             {ana.outlet_valuation.length === 0 ? (
-              <div className="empty-hint">Tidak ada data.</div>
+              <div className="empty-hint">No data.</div>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={ana.outlet_valuation.map((o) => ({ name: o.outlet_name, value: o.value, items: o.items }))} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
@@ -196,14 +196,14 @@ export default function Dashboard() {
       <div className="content-grid">
         <section className="panel panel-wide">
           <PanelHead
-            title="Perlu perhatian"
-            detail="Stok berada di atau di bawah batas minimum"
-            action="Buka master barang"
+            title="Needs attention"
+            detail="Stock at or below minimum threshold"
+            action="Open items"
             onAction={() => navigate("/inventory")}
           />
           <div className="attention-list">
             {data.low_stock_items.length === 0 && (
-              <div className="attention-row"><span>Semua stok aman ✓</span></div>
+              <div className="attention-row"><span>All stock levels safe ✓</span></div>
             )}
             {data.low_stock_items.map((i) => (
               <div className="attention-row" key={i.id} data-testid={`low-stock-row-${i.id}`}>
@@ -219,17 +219,17 @@ export default function Dashboard() {
                   <span>min. {i.min_stock} {i.unit}</span>
                 </div>
                 <button className="small-button" onClick={() => navigate("/orders")}>
-                  Buat PO <ChevronRight size={14} />
+                  Create PO <ChevronRight size={14} />
                 </button>
               </div>
             ))}
           </div>
         </section>
         <section className="panel">
-          <PanelHead title="Aktivitas terbaru" detail="Transaksi lintas outlet" />
+          <PanelHead title="Recent activity" detail="Cross-outlet transactions" />
           <div className="activity-list">
             {data.activities.length === 0 && (
-              <div className="activity"><span>Belum ada aktivitas hari ini</span></div>
+              <div className="activity"><span>No activity today</span></div>
             )}
             {data.activities.map((a, idx) => {
               const Icon = iconFor(a.type);

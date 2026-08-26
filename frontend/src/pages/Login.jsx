@@ -6,7 +6,7 @@ import { toast } from "sonner";
 const demoAccounts = [
   { label: "Admin", email: "admin@lagobali.com", password: "admin123" },
   { label: "Purchasing", email: "purchasing@lagobali.com", password: "demo123" },
-  { label: "Gudang", email: "warehouse@lagobali.com", password: "demo123" },
+  { label: "Warehouse", email: "warehouse@lagobali.com", password: "demo123" },
   { label: "Finance", email: "finance@lagobali.com", password: "demo123" },
 ];
 
@@ -23,7 +23,7 @@ export default function Login() {
     setError("");
     try {
       const user = await login(email, password);
-      toast.success(`Selamat datang, ${user.name}`);
+      toast.success(`Welcome, ${user.name}`);
     } catch (err) {
       setError(formatApiErrorDetail(err.response?.data?.detail) || err.message);
     } finally {
@@ -47,25 +47,25 @@ export default function Login() {
           </div>
         </div>
         <div className="login-copy">
-          <p className="eyebrow">Kontrol operasional hotel · F&amp;B</p>
-          <h1>Satu sistem untuk order, penerimaan, stok, dan cost control.</h1>
+          <p className="eyebrow">Hotel operations control · F&amp;B</p>
+          <h1>One system for orders, receiving, stock, and cost control.</h1>
           <p className="subtitle">
-            Pantau setiap kilogram bahan baku, setiap botol minuman, dan setiap sen
-            biaya harian dari seluruh outlet Lago Bali.
+            Track every kilogram of raw material, every bottle of beverage, and every
+            rupiah of daily cost across all Lago Bali outlets.
           </p>
           <ul className="login-highlights">
             <li>◇ Purchase order + approval workflow</li>
-            <li>◇ HPP weighted average otomatis di setiap penerimaan</li>
-            <li>◇ Stock opname & flash cost harian per outlet</li>
+            <li>◇ Automatic weighted-average COGS on every receiving</li>
+            <li>◇ Stock take & daily flash cost per outlet</li>
           </ul>
         </div>
-        <div className="login-credit">Dibuat oleh <strong>NANDA HARY</strong></div>
+        <div className="login-credit">Created by <strong>NANDA HARY</strong></div>
       </div>
       <div className="login-right">
         <form className="login-card" onSubmit={onSubmit}>
-          <p className="eyebrow">Masuk ke workspace</p>
-          <h2>Selamat datang kembali</h2>
-          <p className="subtitle">Gunakan akun demo di kanan bawah untuk pengujian cepat.</p>
+          <p className="eyebrow">Sign in to workspace</p>
+          <h2>Welcome back</h2>
+          <p className="subtitle">Use the demo accounts below for quick testing.</p>
           <label className="field">
             <span>Email</span>
             <input
@@ -99,10 +99,10 @@ export default function Login() {
             disabled={loading}
             type="submit"
           >
-            {loading ? "Memproses..." : "Masuk"}
+            {loading ? "Processing..." : "Sign in"}
           </button>
           <div className="login-demo">
-            <span>Akun demo:</span>
+            <span>Demo accounts:</span>
             <div className="demo-grid">
               {demoAccounts.map((a) => (
                 <button

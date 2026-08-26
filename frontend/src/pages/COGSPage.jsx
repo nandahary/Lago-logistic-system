@@ -7,7 +7,7 @@ import { useOutlets } from "../lib/useOutlets";
 import { PageIntro, PanelHead, Modal, Field, SelectField, Badge } from "../components/UI";
 import { useAuth } from "../context/AuthContext";
 
-export default function HPPPage() {
+export default function COGSPage() {
   const { user } = useAuth();
   const outletsList = useOutlets();
   const [recipes, setRecipes] = useState([]);
@@ -45,9 +45,9 @@ export default function HPPPage() {
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!name) return toast.error("Nama menu wajib diisi");
+    if (!name) return toast.error("Menu name is required");
     const clean = lines.filter((l) => l.item_id && Number(l.qty) > 0);
-    if (clean.length === 0) return toast.error("Tambahkan minimal 1 bahan");
+    if (clean.length === 0) return toast.error("Add at least 1 ingredient");
     setSaving(true);
     try {
       await api.post("/recipes", {
@@ -59,7 +59,7 @@ export default function HPPPage() {
           return { item_id: l.item_id, name: it.name, qty: Number(l.qty), unit: it.unit };
         }),
       });
-      toast.success("Resep tersimpan");
+      toast.success("Recipe saved");
       setModal(null);
       load();
     } catch (err) {
@@ -69,7 +69,7 @@ export default function HPPPage() {
     }
   };
 
-  const previewHPP = lines.reduce((sum, l) => {
+  const previewCOGS = lines.reduce((sum, l) => {
     const it = items.find((i) => i.id === l.item_id);
     if (!it) return sum;
     return sum + Number(l.qty || 0) * Number(it.cost || 0);
@@ -78,41 +78,41 @@ export default function HPPPage() {
   return (
     <>
       <PageIntro
-        eyebrow="Cost engineering · resep menu"
-        title="HPP & resep"
-        subtitle="Hitung biaya bahan baku dan margin setiap menu berdasarkan HPP realtime."
+        eyebrow="Cost engineering · menu recipes"
+        title="COGS & recipes"
+        subtitle="Calculate ingredient cost and margin per menu based on real-time COGS."
         testid="hpp-title"
         action={
           canCreate && (
             <button data-testid="hpp-primary-action" className="primary-button" onClick={openNew}>
-              <Plus size={17} /> Tambah resep
+              <Plus size={17} /> Add recipe
             </button>
           )
         }
       />
       <section className="panel">
-        <PanelHead title="Daftar resep" detail={`${recipes.length} menu tercatat`} />
+        <PanelHead title="Recipe list" detail={`${recipes.length} menus recorded`} />
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>Menu</th>
                 <th>Outlet</th>
-                <th>Bahan</th>
-                <th>HPP</th>
-                <th>Harga jual</th>
+                <th>Ingredient</th>
+                <th>COGS</th>
+                <th>Selling price</th>
                 <th>Margin</th>
               </tr>
             </thead>
             <tbody>
               {recipes.length === 0 && (
-                <tr><td colSpan={6} style={{ textAlign: "center", padding: 40 }}>Belum ada resep.</td></tr>
+                <tr><td colSpan={6} style={{ textAlign: "center", padding: 40 }}>No recipes yet.</td></tr>
               )}
               {recipes.map((r) => (
                 <tr key={r.id} data-testid={`recipe-row-${r.id}`}>
                   <td><strong>{r.name}</strong></td>
                   <td>{outletNames[r.outlet_code] || r.outlet_code}</td>
-                  <td>{r.ingredients?.length || 0} bahan</td>
+                  <td>{r.ingredients?.length || 0} ingredients</td>
                   <td><strong>{money(r.hpp)}</strong></td>
                   <td>{money(r.selling_price)}</td>
                   <td>
@@ -128,9 +128,9 @@ export default function HPPPage() {
       </section>
 
       {modal === "new" && (
-        <Modal title="Tambah resep menu" onClose={() => setModal(null)}>
+        <Modal title="Add recipe menu" onClose={() => setModal(null)}>
           <form className="form-grid" onSubmit={submit}>
-            <Field label="Nama menu" testid="recipe-name-input" value={name} onChange={setName} placeholder="Beef tenderloin steak" />
+            <Field label="Menu name" testid="recipe-name-input" value={name} onChange={setName} placeholder="Beef tenderloin steak" />
             <SelectField
               label="Outlet"
               testid="recipe-outlet-select"
@@ -140,14 +140,14 @@ export default function HPPPage() {
                 .filter((o) => ["kitchen", "bar", "restaurant"].includes(o.type))
                 .map((o) => ({ value: o.code, label: o.name }))}
             />
-            <Field label="Harga jual (IDR)" testid="recipe-price-input" type="number" value={sellingPrice} onChange={setSellingPrice} />
+            <Field label="Selling price (IDR)" testid="recipe-price-input" type="number" value={sellingPrice} onChange={setSellingPrice} />
             <div style={{ gridColumn: "1/-1" }}>
-              <p className="eyebrow">Bahan baku</p>
+              <p className="eyebrow">Raw ingredients</p>
               <div className="line-editor">
                 {lines.map((l, idx) => (
                   <div className="line-row simple" key={idx}>
                     <select value={l.item_id} onChange={(e) => updateLine(idx, "item_id", e.target.value)}>
-                      <option value="">Pilih bahan...</option>
+                      <option value="">Pick ingredient...</option>
                       {items.map((it) => (
                         <option key={it.id} value={it.id}>{it.name} ({money(it.cost)}/{it.unit})</option>
                       ))}
@@ -159,19 +159,19 @@ export default function HPPPage() {
                   </div>
                 ))}
                 <button type="button" className="chip small" onClick={addLine}>
-                  <Plus size={12} /> Tambah bahan
+                  <Plus size={12} /> Add ingredient
                 </button>
               </div>
               <div className="line-total">
-                HPP: <strong>{money(previewHPP)}</strong> ·
-                Harga jual: <strong>{money(Number(sellingPrice || 0))}</strong> ·
-                Margin: <strong>{Number(sellingPrice) > 0 ? Math.round(((Number(sellingPrice) - previewHPP) / Number(sellingPrice)) * 100) : 0}%</strong>
+                COGS: <strong>{money(previewCOGS)}</strong> ·
+                Selling price: <strong>{money(Number(sellingPrice || 0))}</strong> ·
+                Margin: <strong>{Number(sellingPrice) > 0 ? Math.round(((Number(sellingPrice) - previewCOGS) / Number(sellingPrice)) * 100) : 0}%</strong>
               </div>
             </div>
             <div className="form-actions">
-              <button type="button" className="secondary-button" onClick={() => setModal(null)}>Batal</button>
+              <button type="button" className="secondary-button" onClick={() => setModal(null)}>Cancel</button>
               <button data-testid="recipe-save-button" className="primary-button" type="submit" disabled={saving}>
-                <Check size={16} /> {saving ? "Menyimpan..." : "Simpan resep"}
+                <Check size={16} /> {saving ? "Saving..." : "Save recipe"}
               </button>
             </div>
           </form>

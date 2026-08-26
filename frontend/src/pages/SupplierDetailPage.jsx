@@ -22,7 +22,7 @@ export default function SupplierDetailPage() {
       });
   }, [supplierId, navigate]);
 
-  if (!data) return <div className="loading-state">Memuat detail supplier...</div>;
+  if (!data) return <div className="loading-state">Loading supplier detail...</div>;
   const s = data.supplier;
   const stats = data.stats;
 
@@ -34,12 +34,12 @@ export default function SupplierDetailPage() {
         onClick={() => navigate("/suppliers")}
         style={{ marginBottom: 18 }}
       >
-        <ArrowLeft size={14} /> Kembali ke daftar supplier
+        <ArrowLeft size={14} /> Back to supplier list
       </button>
 
       <div className="supplier-header" data-testid="supplier-detail-header">
         <div>
-          <p className="eyebrow">Supplier · katalog vendor</p>
+          <p className="eyebrow">Supplier · vendor catalog</p>
           <h1 data-testid="supplier-detail-name">{s.name}</h1>
           <div className="supplier-code">
             <Badge tone="neutral">{s.code}</Badge>
@@ -47,7 +47,7 @@ export default function SupplierDetailPage() {
             {s.lead_time_days > 0 && (
               <Badge tone={s.lead_time_days <= 2 ? "green" : "amber"}>
                 <Clock size={10} style={{ marginRight: 4, verticalAlign: "middle" }} />
-                Lead time {s.lead_time_days} hari
+                Lead time {s.lead_time_days} days
               </Badge>
             )}
           </div>
@@ -56,12 +56,12 @@ export default function SupplierDetailPage() {
 
       <div className="supplier-info-grid">
         <div className="info-card">
-          <span className="info-label">Kontak</span>
+          <span className="info-label">Contact</span>
           <strong>{s.contact_person || "-"}</strong>
         </div>
         <div className="info-card">
           <span className="info-label">
-            <Phone size={12} /> Telepon
+            <Phone size={12} /> Phone
           </span>
           <strong>{s.phone || "-"}</strong>
         </div>
@@ -73,13 +73,13 @@ export default function SupplierDetailPage() {
         </div>
         <div className="info-card" style={{ gridColumn: "span 2" }}>
           <span className="info-label">
-            <MapPin size={12} /> Alamat
+            <MapPin size={12} /> Address
           </span>
           <strong>{s.address || "-"}</strong>
         </div>
         {s.notes && (
           <div className="info-card" style={{ gridColumn: "span 3" }}>
-            <span className="info-label">Catatan</span>
+            <span className="info-label">Notes</span>
             <strong>{s.notes}</strong>
           </div>
         )}
@@ -101,7 +101,7 @@ export default function SupplierDetailPage() {
           <div className="metric-icon green">
             <Truck size={17} />
           </div>
-          <span>Total penerimaan</span>
+          <span>Total received</span>
           <strong>{stats.grn_count}</strong>
           <small className="green">{money(stats.grn_total)}</small>
         </div>
@@ -109,37 +109,37 @@ export default function SupplierDetailPage() {
           <div className="metric-icon amber">
             <Clock size={17} />
           </div>
-          <span>Status ringkas</span>
+          <span>Status summary</span>
           <strong>{stats.by_status.waiting_approval || 0}</strong>
-          <small className="amber">PO menunggu approval</small>
+          <small className="amber">PO awaiting approval</small>
         </div>
         <div className="metric" data-testid="supplier-metric-active">
           <div className="metric-icon blue">
             <Package size={17} />
           </div>
-          <span>PO aktif</span>
+          <span>Active PO</span>
           <strong>
             {(stats.by_status.approved || 0) + (stats.by_status.partial || 0)}
           </strong>
-          <small className="blue">Siap / sedang diterima</small>
+          <small className="blue">Ready / being received</small>
         </div>
       </div>
 
       <section className="panel" style={{ marginTop: 22 }}>
         <PanelHead
-          title="Riwayat Purchase Order"
-          detail={`${data.orders.length} PO dari ${s.name}`}
+          title="Purchase Order history"
+          detail={`${data.orders.length} PO from ${s.name}`}
         />
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>No. PO</th>
+                <th>PO No.</th>
                 <th>Outlet</th>
-                <th>Baris</th>
+                <th>Lines</th>
                 <th>Total</th>
                 <th>Status</th>
-                <th>Dibuat</th>
+                <th>Created</th>
                 <th></th>
               </tr>
             </thead>
@@ -147,7 +147,7 @@ export default function SupplierDetailPage() {
               {data.orders.length === 0 && (
                 <tr>
                   <td colSpan={7} style={{ textAlign: "center", padding: 40 }}>
-                    Belum ada PO untuk supplier ini.
+                    No PO for this supplier yet.
                   </td>
                 </tr>
               )}
@@ -165,10 +165,10 @@ export default function SupplierDetailPage() {
                     </td>
                     <td>{outletNames[o.outlet_code] || o.outlet_code}</td>
                     <td>
-                      {o.items.length} baris
+                      {o.items.length} lines
                       {o.status !== "waiting_approval" && (
                         <small>
-                          Diterima {recvQty}/{totalQty} ({pct}%)
+                          Received {recvQty}/{totalQty} ({pct}%)
                         </small>
                       )}
                     </td>
@@ -187,9 +187,9 @@ export default function SupplierDetailPage() {
                       <button
                         className="small-button"
                         onClick={() => printPurchaseOrder(o, s)}
-                        title="Cetak PO"
+                        title="Print PO"
                       >
-                        <Printer size={12} /> Cetak
+                        <Printer size={12} /> Print
                       </button>
                     </td>
                   </tr>
@@ -203,19 +203,19 @@ export default function SupplierDetailPage() {
       {data.receivings.length > 0 && (
         <section className="panel" style={{ marginTop: 18 }}>
           <PanelHead
-            title="Riwayat penerimaan"
-            detail={`${data.receivings.length} GRN dari ${s.name}`}
+            title="Receiving history"
+            detail={`${data.receivings.length} GRN from ${s.name}`}
           />
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>No. GRN</th>
-                  <th>Ref PO</th>
+                  <th>GRN No.</th>
+                  <th>PO Ref</th>
                   <th>Outlet</th>
-                  <th>Baris</th>
+                  <th>Lines</th>
                   <th>Total</th>
-                  <th>Tanggal</th>
+                  <th>Date</th>
                 </tr>
               </thead>
               <tbody>

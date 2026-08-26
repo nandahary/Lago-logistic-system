@@ -56,7 +56,7 @@ export default function IssuesPage() {
   const submit = async (e) => {
     e.preventDefault();
     const cleanLines = lines.filter((l) => l.item_id && Number(l.qty) > 0);
-    if (cleanLines.length === 0) return toast.error("Tambahkan minimal 1 item");
+    if (cleanLines.length === 0) return toast.error("Add at least 1 item");
     setSaving(true);
     try {
       await api.post("/issues", {
@@ -68,7 +68,7 @@ export default function IssuesPage() {
           return { item_id: l.item_id, name: it.name, qty: Number(l.qty), unit: it.unit };
         }),
       });
-      toast.success("Barang keluar tercatat, flash cost akan ter-update");
+      toast.success("Stock out recorded, flash cost will update");
       setModal(null);
       load();
       api.get("/items").then((r) => setItems(r.data));
@@ -82,9 +82,9 @@ export default function IssuesPage() {
   return (
     <>
       <PageIntro
-        eyebrow="Operasional · konsumsi outlet"
-        title="Barang keluar"
-        subtitle="Catat requisition dari gudang ke Kitchen, Bar, dan Housekeeping."
+        eyebrow="Operations · outlet consumption"
+        title="Stock out"
+        subtitle="Record requisitions from warehouse to Kitchen, Bar, and Housekeeping."
         testid="issues-title"
         action={
           <div className="action-cluster">
@@ -103,30 +103,30 @@ export default function IssuesPage() {
                 className="primary-button"
                 onClick={openNew}
               >
-                <Plus size={17} /> Barang keluar
+                <Plus size={17} /> Stock out
               </button>
             )}
           </div>
         }
       />
       <section className="panel">
-        <PanelHead title="Riwayat barang keluar" detail={`${list.length} transaksi`} />
+        <PanelHead title="Stock out history" detail={`${list.length} transactions`} />
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>No.</th>
-                <th>Dari</th>
-                <th>Ke</th>
-                <th>Baris</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Lines</th>
                 <th>Total cost</th>
-                <th>Tanggal</th>
-                <th>Oleh</th>
+                <th>Date</th>
+                <th>By</th>
               </tr>
             </thead>
             <tbody>
               {list.length === 0 && (
-                <tr><td colSpan={7} style={{ textAlign: "center", padding: 40 }}>Belum ada transaksi.</td></tr>
+                <tr><td colSpan={7} style={{ textAlign: "center", padding: 40 }}>No transactions yet.</td></tr>
               )}
               {list.map((g) => (
                 <tr key={g.id} data-testid={`issue-row-${g.id}`}>
@@ -147,17 +147,17 @@ export default function IssuesPage() {
       </section>
 
       {modal === "new" && (
-        <Modal title="Catat barang keluar" onClose={() => setModal(null)}>
+        <Modal title="Record stock out" onClose={() => setModal(null)}>
           <form className="form-grid" onSubmit={submit}>
             <SelectField
-              label="Dari outlet"
+              label="From outlet"
               testid="issue-from-select"
               value={fromOutlet}
               onChange={setFromOutlet}
               options={outletsList.map((o) => ({ value: o.code, label: o.name }))}
             />
             <SelectField
-              label="Ke outlet"
+              label="To outlet"
               testid="issue-to-select"
               value={toOutlet}
               onChange={setToOutlet}
@@ -166,11 +166,11 @@ export default function IssuesPage() {
                 .map((o) => ({ value: o.code, label: o.name }))}
             />
             <label className="field" style={{ gridColumn: "1/-1" }}>
-              <span>Catatan</span>
-              <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Dinner service, event, dsb" />
+              <span>Notes</span>
+              <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Dinner service, event, etc." />
             </label>
             <div style={{ gridColumn: "1/-1" }}>
-              <p className="eyebrow">Baris item</p>
+              <p className="eyebrow">Lines item</p>
               <div className="line-editor">
                 {lines.map((l, idx) => (
                   <div className="line-row simple" key={idx}>
@@ -179,10 +179,10 @@ export default function IssuesPage() {
                       value={l.item_id}
                       onChange={(e) => updateLine(idx, "item_id", e.target.value)}
                     >
-                      <option value="">Pilih item...</option>
+                      <option value="">Pick item...</option>
                       {items.map((it) => (
                         <option key={it.id} value={it.id}>
-                          {it.name} ({it.sku}) · stok {it.stock} {it.unit}
+                          {it.name} ({it.sku}) · stock {it.stock} {it.unit}
                         </option>
                       ))}
                     </select>
@@ -193,14 +193,14 @@ export default function IssuesPage() {
                   </div>
                 ))}
                 <button type="button" className="chip small" onClick={addLine}>
-                  <Plus size={12} /> Tambah baris
+                  <Plus size={12} /> Add row
                 </button>
               </div>
             </div>
             <div className="form-actions">
-              <button type="button" className="secondary-button" onClick={() => setModal(null)}>Batal</button>
+              <button type="button" className="secondary-button" onClick={() => setModal(null)}>Cancel</button>
               <button data-testid="issue-save-button" className="primary-button" type="submit" disabled={saving}>
-                <Check size={16} /> {saving ? "Menyimpan..." : "Simpan"}
+                <Check size={16} /> {saving ? "Saving..." : "Save"}
               </button>
             </div>
           </form>
@@ -209,15 +209,15 @@ export default function IssuesPage() {
 
       {modal === "upload" && (
         <BulkUploadDialog
-          title="Upload barang keluar (CSV)"
+          title="Upload stock out (CSV)"
           endpoint="/issues/bulk-upload"
-          templateName="barang_keluar_template.csv"
+          templateName="stock_out_template.csv"
           templateHeaders={TEMPLATE.headers}
           templateExample={TEMPLATE.example}
           instructions={
             <>
-              Kelompokkan baris dengan kolom <b>issue_ref</b> yang sama. Stok akan langsung
-              berkurang dan biaya masuk ke flash cost tanggal upload.
+              Group rows with the same <b>issue_ref</b> column. Stock will decrease
+              immediately and cost will be added to flash cost for the upload date.
             </>
           }
           onClose={() => setModal(null)}

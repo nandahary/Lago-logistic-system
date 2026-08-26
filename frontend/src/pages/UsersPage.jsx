@@ -7,9 +7,9 @@ import { PageIntro, PanelHead, Modal, Field, SelectField, Badge } from "../compo
 import { useAuth } from "../context/AuthContext";
 
 const ROLE_OPTIONS = [
-  { value: "admin", label: "Admin — akses penuh" },
-  { value: "purchasing", label: "Purchasing — buat PO" },
-  { value: "warehouse", label: "Gudang — terima, keluar, opname" },
+  { value: "admin", label: "Admin — full access" },
+  { value: "purchasing", label: "Purchasing — create PO" },
+  { value: "warehouse", label: "Warehouse — receive, issue, opname" },
   { value: "finance", label: "Finance — approve, revenue, flash cost" },
 ];
 
@@ -50,11 +50,11 @@ export default function UsersPage() {
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!form.name || !form.role) return toast.error("Nama dan role wajib diisi");
+    if (!form.name || !form.role) return toast.error("Name and role are required");
     if (modal.mode === "new" && (!form.email || !form.password))
-      return toast.error("Email dan password wajib diisi");
+      return toast.error("Email and password are required");
     if (modal.mode === "new" && form.password.length < 6)
-      return toast.error("Password minimal 6 karakter");
+      return toast.error("Password must be at least 6 characters");
     setSaving(true);
     try {
       if (modal.mode === "new") {
@@ -64,12 +64,12 @@ export default function UsersPage() {
           name: form.name,
           role: form.role,
         });
-        toast.success(`User ${form.email} ditambahkan`);
+        toast.success(`User ${form.email} added`);
       } else {
         const payload = { name: form.name, role: form.role };
         if (form.password) payload.password = form.password;
         await api.patch(`/users/${form.id}`, payload);
-        toast.success("User diperbarui");
+        toast.success("User updated");
       }
       setModal(null);
       load();
@@ -81,10 +81,10 @@ export default function UsersPage() {
   };
 
   const remove = async (u) => {
-    if (!window.confirm(`Hapus user ${u.email}?`)) return;
+    if (!window.confirm(`Delete user ${u.email}?`)) return;
     try {
       await api.delete(`/users/${u.id}`);
-      toast.success("User dihapus");
+      toast.success("User deleted");
       load();
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || err.message);
@@ -104,7 +104,7 @@ export default function UsersPage() {
   const resetTransactions = async () => {
     if (
       !window.confirm(
-        "Hapus SEMUA transaksi (PO, GRN, Barang keluar, Opname, Revenue, Resep) dan reset stok item ke nilai seed? Master data (user, outlet, supplier) tetap. Aksi ini tidak dapat dibatalkan."
+        "Delete ALL transactions (PO, GRN, Stock out, Opname, Revenue, Recipes) and reset item stock to seed values? Master data (users, outlets, suppliers) will remain. This action cannot be undone."
       )
     )
       return;
@@ -112,7 +112,7 @@ export default function UsersPage() {
       const { data } = await api.post("/admin/reset-transactions");
       const d = data.deleted;
       toast.success(
-        `Reset selesai: ${d.purchase_orders} PO · ${d.receivings} GRN · ${d.issues} issue · ${d.opnames} opname · ${d.revenues} revenue · ${d.recipes} resep dihapus. Stok items direset.`
+        `Reset complete: ${d.purchase_orders} PO · ${d.receivings} GRN · ${d.issues} issues · ${d.opnames} opname · ${d.revenues} revenue · ${d.recipes} recipes deleted. Stock items reset.`
       );
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || err.message);
@@ -122,9 +122,9 @@ export default function UsersPage() {
   return (
     <>
       <PageIntro
-        eyebrow="Administrasi · akses & keamanan"
-        title="Manajemen user"
-        subtitle="Kelola akun operasional dan atur hak akses per role."
+        eyebrow="Administration · access & security"
+        title="User management"
+        subtitle="Manage operational accounts and role-based access."
         testid="users-title"
         action={
           <div className="action-cluster">
@@ -132,12 +132,12 @@ export default function UsersPage() {
               data-testid="reset-transactions-button"
               className="secondary-button"
               onClick={resetTransactions}
-              title="Hapus semua transaksi & reset stok"
+              title="Delete all transactions & reset stock"
             >
-              <RotateCcw size={16} /> Reset transaksi
+              <RotateCcw size={16} /> Reset transactions
             </button>
             <button data-testid="user-add-button" className="primary-button" onClick={openNew}>
-              <Plus size={17} /> Tambah user
+              <Plus size={17} /> Add user
             </button>
           </div>
         }
@@ -150,7 +150,7 @@ export default function UsersPage() {
               data-testid="user-search-input"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Cari nama, email, atau role..."
+              placeholder="Search by name, email, or role..."
             />
           </div>
         </div>
@@ -158,18 +158,18 @@ export default function UsersPage() {
           <table>
             <thead>
               <tr>
-                <th>Nama</th>
+                <th>Name</th>
                 <th>Email</th>
                 <th>Role</th>
-                <th>Dibuat</th>
-                <th style={{ textAlign: "right" }}>Aksi</th>
+                <th>Created</th>
+                <th style={{ textAlign: "right" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={5} style={{ textAlign: "center", padding: 40 }}>
-                    Belum ada user.
+                    No users yet.
                   </td>
                 </tr>
               )}
@@ -177,7 +177,7 @@ export default function UsersPage() {
                 <tr key={u.id} data-testid={`user-row-${u.id}`}>
                   <td>
                     <strong>{u.name}</strong>
-                    {u.id === current?.id && <small>(Anda)</small>}
+                    {u.id === current?.id && <small>(You)</small>}
                   </td>
                   <td>{u.email}</td>
                   <td>
@@ -217,19 +217,19 @@ export default function UsersPage() {
 
       {modal && (
         <Modal
-          title={modal.mode === "edit" ? "Edit user" : "Tambah user baru"}
+          title={modal.mode === "edit" ? "Edit user" : "Add new user"}
           onClose={() => setModal(null)}
         >
           <form className="form-grid" onSubmit={submit}>
             <Field
-              label="Nama lengkap"
+              label="Full name"
               testid="user-name-input"
               value={form.name}
               onChange={(v) => setForm({ ...form, name: v })}
-              placeholder="Nama pengguna"
+              placeholder="User name"
             />
             <Field
-              label={modal.mode === "edit" ? "Email (tidak bisa diubah)" : "Email"}
+              label={modal.mode === "edit" ? "Email (cannot be changed)" : "Email"}
               testid="user-email-input"
               type="email"
               value={form.email}
@@ -244,25 +244,25 @@ export default function UsersPage() {
               options={ROLE_OPTIONS}
             />
             <Field
-              label={modal.mode === "edit" ? "Password baru (opsional)" : "Password"}
+              label={modal.mode === "edit" ? "New password (optional)" : "Password"}
               testid="user-password-input"
               type="password"
               value={form.password}
               onChange={(v) => setForm({ ...form, password: v })}
-              placeholder={modal.mode === "edit" ? "Kosongkan bila tidak diubah" : "Min. 6 karakter"}
+              placeholder={modal.mode === "edit" ? "Leave empty to keep current" : "Min. 6 characters"}
             />
             <div className="role-hint" style={{ gridColumn: "1/-1" }}>
-              <p className="eyebrow">Hak akses per role</p>
+              <p className="eyebrow">Role permissions</p>
               <ul>
-                <li><b>Admin</b>: semua modul, kelola user & supplier</li>
-                <li><b>Purchasing</b>: buat/edit Purchase Order, kelola supplier</li>
-                <li><b>Gudang</b>: terima barang, catat pengeluaran, stock opname</li>
+                <li><b>Admin</b>: all modules, manage users & suppliers</li>
+                <li><b>Purchasing</b>: create/edit Purchase Orders, manage suppliers</li>
+                <li><b>Warehouse</b>: receive goods, record issues, stock opname</li>
                 <li><b>Finance</b>: approve PO/opname, input revenue, monitor flash cost</li>
               </ul>
             </div>
             <div className="form-actions">
               <button type="button" className="secondary-button" onClick={() => setModal(null)}>
-                Batal
+                Cancel
               </button>
               <button
                 data-testid="user-save-button"
@@ -270,7 +270,7 @@ export default function UsersPage() {
                 type="submit"
                 disabled={saving}
               >
-                <Check size={16} /> {saving ? "Menyimpan..." : "Simpan"}
+                <Check size={16} /> {saving ? "Saving..." : "Save"}
               </button>
             </div>
           </form>

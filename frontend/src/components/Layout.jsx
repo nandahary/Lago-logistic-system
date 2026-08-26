@@ -8,20 +8,20 @@ import {
 } from "lucide-react";
 
 const BASE_NAV = [
-  ["/dashboard", "Ringkasan", LayoutDashboard],
-  ["/inventory", "Master barang", Box],
+  ["/dashboard", "Overview", LayoutDashboard],
+  ["/inventory", "Items", Box],
   ["/suppliers", "Supplier", Users],
   ["/orders", "Purchase order", ShoppingCart],
-  ["/receiving", "Penerimaan", Truck],
-  ["/issues", "Barang keluar", ChevronRight],
-  ["/opname", "Stock opname", ClipboardCheck],
-  ["/hpp", "HPP & resep", Calculator],
-  ["/revenue", "Revenue harian", Coins],
+  ["/receiving", "Receiving", Truck],
+  ["/issues", "Stock out", ChevronRight],
+  ["/opname", "Stock take", ClipboardCheck],
+  ["/hpp", "COGS & recipes", Calculator],
+  ["/revenue", "Daily revenue", Coins],
   ["/flash", "Flash cost", Flame],
-  ["/reports", "Laporan", FileBarChart],
+  ["/reports", "Reports", FileBarChart],
 ];
 
-const ADMIN_NAV = [["/users", "Manajemen user", UserCog]];
+const ADMIN_NAV = [["/users", "User management", UserCog]];
 
 export default function Layout({
   outletCode,
@@ -36,7 +36,7 @@ export default function Layout({
   const [open, setOpen] = React.useState(false);
   const NAV = user?.role === "admin" ? [...BASE_NAV, ...ADMIN_NAV] : BASE_NAV;
   const active = NAV.find(([p]) => location.pathname.startsWith(p));
-  const title = active?.[1] || "Ringkasan";
+  const title = active?.[1] || "Overview";
   const activeId = active ? active[0].slice(1) : "dashboard";
   const initials = (user?.name || "?")
     .split(" ")
@@ -85,7 +85,7 @@ export default function Layout({
         </nav>
         <div className="sidebar-footer">
           <div>
-            <div className="live-dot" /> Tersambung
+            <div className="live-dot" /> Connected
             <span>User: {user?.name}</span>
           </div>
           <button
@@ -94,9 +94,9 @@ export default function Layout({
             onClick={handleLogout}
             style={{ marginTop: 12 }}
           >
-            <LogOut size={12} /> Keluar
+            <LogOut size={12} /> Logout
           </button>
-          <div className="credit">Dibuat oleh <strong>NANDA HARY</strong></div>
+          <div className="credit">Created by <strong>NANDA HARY</strong></div>
         </div>
       </aside>
       {open && (
@@ -104,7 +104,7 @@ export default function Layout({
           data-testid="mobile-menu-overlay"
           className="mobile-overlay"
           onClick={() => setOpen(false)}
-          aria-label="Tutup menu"
+          aria-label="Close menu"
         />
       )}
       <main className="main">
@@ -129,7 +129,7 @@ export default function Layout({
                 value={outletCode}
                 onChange={(e) => onOutletChange(e.target.value)}
               >
-                <option value="all">Semua outlet</option>
+                <option value="all">All outlets</option>
                 {outlets.map((o) => (
                   <option key={o.code} value={o.code}>
                     {o.name}

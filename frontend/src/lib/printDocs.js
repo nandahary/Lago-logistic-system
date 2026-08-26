@@ -4,7 +4,7 @@
 import { outletNames, statusLabels } from "./format";
 
 const money = (v) =>
-  new Intl.NumberFormat("id-ID", {
+  new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "IDR",
     maximumFractionDigits: 0,
@@ -13,7 +13,7 @@ const money = (v) =>
 const fmtDate = (iso) => {
   if (!iso) return "-";
   try {
-    return new Date(iso).toLocaleDateString("id-ID", {
+    return new Date(iso).toLocaleDateString("en-US", {
       day: "2-digit",
       month: "long",
       year: "numeric",
@@ -84,7 +84,7 @@ const headerBlock = (title, docNo) => `
       </div>
     </div>
     <div class="doc-title">
-      <small>Dokumen resmi</small>
+      <small>Official document</small>
       <h1>${title}</h1>
       <div class="doc-no">${docNo}</div>
     </div>
@@ -93,14 +93,14 @@ const headerBlock = (title, docNo) => `
 
 const footerBlock = `
   <div class="footer">
-    Dokumen ini dicetak dari sistem HINTO — <strong>Dibuat oleh NANDA HARY</strong>
+    Printed from LAGO BALI system — <strong>Created by NANDA HARY</strong>
   </div>
 `;
 
 function openAndPrint(html, title) {
   const w = window.open("", "_blank", "width=980,height=1100");
   if (!w) {
-    alert("Popup diblokir browser. Izinkan popup untuk mencetak dokumen.");
+    alert("Popup blocked by browser. Please allow popups to print.");
     return;
   }
   w.document.open();
@@ -119,7 +119,7 @@ export function printPurchaseOrder(po, supplier = null) {
       <td>${i + 1}</td>
       <td>
         <strong>${escapeHtml(l.name)}</strong>
-        ${l.received_qty ? `<small>Sudah diterima: ${l.received_qty} ${l.unit || ""}</small>` : ""}
+        ${l.received_qty ? `<small>Received so far: ${l.received_qty} ${l.unit || ""}</small>` : ""}
       </td>
       <td class="num">${l.qty} ${escapeHtml(l.unit || "")}</td>
       <td class="num">${money(l.price)}</td>
@@ -132,20 +132,20 @@ export function printPurchaseOrder(po, supplier = null) {
     ${headerBlock("Purchase Order", po.po_number || "-")}
     <div class="meta-grid">
       <div class="meta-block">
-        <h3>Informasi PO</h3>
-        <div class="row"><span>Nomor</span><strong>${escapeHtml(po.po_number || "-")}</strong></div>
-        <div class="row"><span>Tanggal</span><strong>${fmtDate(po.created_at)}</strong></div>
-        <div class="row"><span>Outlet tujuan</span><strong>${escapeHtml(outletNames[po.outlet_code] || po.outlet_code)}</strong></div>
+        <h3>PO Information</h3>
+        <div class="row"><span>Number</span><strong>${escapeHtml(po.po_number || "-")}</strong></div>
+        <div class="row"><span>Date</span><strong>${fmtDate(po.created_at)}</strong></div>
+        <div class="row"><span>Destination outlet</span><strong>${escapeHtml(outletNames[po.outlet_code] || po.outlet_code)}</strong></div>
         <div class="row"><span>Status</span><strong>${escapeHtml(statusLabels[po.status] || po.status)}</strong></div>
       </div>
       <div class="meta-block">
         <h3>Supplier</h3>
-        <div class="row"><span>Nama</span><strong>${escapeHtml(po.supplier || "-")}</strong></div>
-        ${supplier?.contact_person ? `<div class="row"><span>Kontak</span><strong>${escapeHtml(supplier.contact_person)}</strong></div>` : ""}
-        ${supplier?.phone ? `<div class="row"><span>Telepon</span><strong>${escapeHtml(supplier.phone)}</strong></div>` : ""}
+        <div class="row"><span>Name</span><strong>${escapeHtml(po.supplier || "-")}</strong></div>
+        ${supplier?.contact_person ? `<div class="row"><span>Contact</span><strong>${escapeHtml(supplier.contact_person)}</strong></div>` : ""}
+        ${supplier?.phone ? `<div class="row"><span>Phone</span><strong>${escapeHtml(supplier.phone)}</strong></div>` : ""}
         ${supplier?.email ? `<div class="row"><span>Email</span><strong>${escapeHtml(supplier.email)}</strong></div>` : ""}
-        ${supplier?.payment_terms ? `<div class="row"><span>Pembayaran</span><strong>${escapeHtml(supplier.payment_terms)}</strong></div>` : ""}
-        ${supplier?.lead_time_days ? `<div class="row"><span>Lead time</span><strong>${supplier.lead_time_days} hari</strong></div>` : ""}
+        ${supplier?.payment_terms ? `<div class="row"><span>Payment</span><strong>${escapeHtml(supplier.payment_terms)}</strong></div>` : ""}
+        ${supplier?.lead_time_days ? `<div class="row"><span>Lead time</span><strong>${supplier.lead_time_days} days</strong></div>` : ""}
       </div>
     </div>
 
@@ -153,27 +153,27 @@ export function printPurchaseOrder(po, supplier = null) {
       <thead>
         <tr>
           <th style="width:36px">#</th>
-          <th>Deskripsi barang</th>
+          <th>Item description</th>
           <th class="num" style="width:110px">Qty</th>
-          <th class="num" style="width:130px">Harga satuan</th>
+          <th class="num" style="width:130px">Unit price</th>
           <th class="num" style="width:150px">Subtotal</th>
         </tr>
       </thead>
-      <tbody>${rows || `<tr><td colspan="5" style="text-align:center;padding:22px;color:#7d8a86">Tidak ada item.</td></tr>`}</tbody>
+      <tbody>${rows || `<tr><td colspan="5" style="text-align:center;padding:22px;color:#7d8a86">No items.</td></tr>`}</tbody>
     </table>
 
     <div class="totals">
       <table>
-        <tr><td class="label">Total item</td><td class="value">${items.length} baris · ${totalQty} qty</td></tr>
+        <tr><td class="label">Total items</td><td class="value">${items.length} lines · ${totalQty} qty</td></tr>
         <tr class="grand"><td class="label">GRAND TOTAL</td><td class="value">${money(po.total)}</td></tr>
       </table>
     </div>
 
-    ${po.notes ? `<div class="notes"><h4>Catatan</h4>${escapeHtml(po.notes)}</div>` : ""}
+    ${po.notes ? `<div class="notes"><h4>Notes</h4>${escapeHtml(po.notes)}</div>` : ""}
 
     <div class="signatures">
-      <div class="sig"><div class="line"></div><div class="name">${escapeHtml(po.created_by || "Purchasing")}</div><div class="role">Dibuat oleh</div></div>
-      <div class="sig"><div class="line"></div><div class="name">${escapeHtml(po.approved_by || "_______________")}</div><div class="role">Disetujui (Finance)</div></div>
+      <div class="sig"><div class="line"></div><div class="name">${escapeHtml(po.created_by || "Purchasing")}</div><div class="role">Created by</div></div>
+      <div class="sig"><div class="line"></div><div class="name">${escapeHtml(po.approved_by || "_______________")}</div><div class="role">Approved (Finance)</div></div>
       <div class="sig"><div class="line"></div><div class="name">_______________</div><div class="role">Supplier</div></div>
     </div>
     ${footerBlock}
@@ -192,7 +192,7 @@ export function printGRN(grn) {
       <td>${i + 1}</td>
       <td>
         <strong>${escapeHtml(l.name)}</strong>
-        ${l.new_avg_cost ? `<small>HPP baru: ${money(l.new_avg_cost)} / ${l.unit || ""}</small>` : ""}
+        ${l.new_avg_cost ? `<small>New COGS: ${money(l.new_avg_cost)} / ${l.unit || ""}</small>` : ""}
       </td>
       <td class="num">${l.qty} ${escapeHtml(l.unit || "")}</td>
       <td class="num">${money(l.price)}</td>
@@ -205,18 +205,18 @@ export function printGRN(grn) {
     ${headerBlock("Goods Received Note", grn.grn_number || "-")}
     <div class="meta-grid">
       <div class="meta-block">
-        <h3>Informasi penerimaan</h3>
-        <div class="row"><span>Nomor GRN</span><strong>${escapeHtml(grn.grn_number || "-")}</strong></div>
-        <div class="row"><span>Tanggal terima</span><strong>${fmtDate(grn.received_at)}</strong></div>
-        <div class="row"><span>Outlet tujuan</span><strong>${escapeHtml(outletNames[grn.outlet_code] || grn.outlet_code)}</strong></div>
-        ${grn.po_number ? `<div class="row"><span>Ref. PO</span><strong>${escapeHtml(grn.po_number)}</strong></div>` : ""}
-        <div class="row"><span>Diterima oleh</span><strong>${escapeHtml(grn.received_by || "-")}</strong></div>
+        <h3>Receiving information</h3>
+        <div class="row"><span>GRN Number</span><strong>${escapeHtml(grn.grn_number || "-")}</strong></div>
+        <div class="row"><span>Received date</span><strong>${fmtDate(grn.received_at)}</strong></div>
+        <div class="row"><span>Destination outlet</span><strong>${escapeHtml(outletNames[grn.outlet_code] || grn.outlet_code)}</strong></div>
+        ${grn.po_number ? `<div class="row"><span>PO Ref.</span><strong>${escapeHtml(grn.po_number)}</strong></div>` : ""}
+        <div class="row"><span>Received by</span><strong>${escapeHtml(grn.received_by || "-")}</strong></div>
       </div>
       <div class="meta-block">
         <h3>Supplier</h3>
-        <div class="row"><span>Nama</span><strong>${escapeHtml(grn.supplier || "-")}</strong></div>
-        <div class="row"><span>Total baris</span><strong>${items.length} item</strong></div>
-        <div class="row"><span>Total qty diterima</span><strong>${totalQty}</strong></div>
+        <div class="row"><span>Name</span><strong>${escapeHtml(grn.supplier || "-")}</strong></div>
+        <div class="row"><span>Total lines</span><strong>${items.length} item</strong></div>
+        <div class="row"><span>Total qty received</span><strong>${totalQty}</strong></div>
       </div>
     </div>
 
@@ -224,28 +224,28 @@ export function printGRN(grn) {
       <thead>
         <tr>
           <th style="width:36px">#</th>
-          <th>Deskripsi barang</th>
-          <th class="num" style="width:110px">Qty diterima</th>
-          <th class="num" style="width:130px">Harga satuan</th>
+          <th>Item description</th>
+          <th class="num" style="width:110px">Qty received</th>
+          <th class="num" style="width:130px">Unit price</th>
           <th class="num" style="width:150px">Subtotal</th>
         </tr>
       </thead>
-      <tbody>${rows || `<tr><td colspan="5" style="text-align:center;padding:22px;color:#7d8a86">Tidak ada item.</td></tr>`}</tbody>
+      <tbody>${rows || `<tr><td colspan="5" style="text-align:center;padding:22px;color:#7d8a86">No items.</td></tr>`}</tbody>
     </table>
 
     <div class="totals">
       <table>
-        <tr><td class="label">Total item diterima</td><td class="value">${items.length} baris · ${totalQty} qty</td></tr>
+        <tr><td class="label">Total items received</td><td class="value">${items.length} lines · ${totalQty} qty</td></tr>
         <tr class="grand"><td class="label">GRAND TOTAL</td><td class="value">${money(grn.total)}</td></tr>
       </table>
     </div>
 
-    ${grn.notes ? `<div class="notes"><h4>Catatan penerimaan</h4>${escapeHtml(grn.notes)}</div>` : ""}
+    ${grn.notes ? `<div class="notes"><h4>Receiving notes</h4>${escapeHtml(grn.notes)}</div>` : ""}
 
     <div class="signatures">
-      <div class="sig"><div class="line"></div><div class="name">${escapeHtml(grn.received_by || "_______________")}</div><div class="role">Petugas gudang</div></div>
+      <div class="sig"><div class="line"></div><div class="name">${escapeHtml(grn.received_by || "_______________")}</div><div class="role">Warehouse officer</div></div>
       <div class="sig"><div class="line"></div><div class="name">_______________</div><div class="role">Checker</div></div>
-      <div class="sig"><div class="line"></div><div class="name">_______________</div><div class="role">Supplier / Kurir</div></div>
+      <div class="sig"><div class="line"></div><div class="name">_______________</div><div class="role">Supplier / Courier</div></div>
     </div>
     ${footerBlock}
   `;

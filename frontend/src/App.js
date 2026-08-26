@@ -11,7 +11,7 @@ import OrdersPage from "./pages/OrdersPage";
 import ReceivingPage from "./pages/ReceivingPage";
 import IssuesPage from "./pages/IssuesPage";
 import OpnamePage from "./pages/OpnamePage";
-import HPPPage from "./pages/HPPPage";
+import COGSPage from "./pages/COGSPage";
 import FlashCostPage from "./pages/FlashCostPage";
 import RevenuePage from "./pages/RevenuePage";
 import SuppliersPage from "./pages/SuppliersPage";
@@ -40,7 +40,7 @@ function ProtectedShell() {
   if (loading) {
     return (
       <div className="loading-state" data-testid="app-loading">
-        Memuat LAGO BALI...
+        Loading LAGO BALI...
       </div>
     );
   }
@@ -64,7 +64,7 @@ function ProtectedShell() {
         <Route path="/receiving" element={<ReceivingPage />} />
         <Route path="/issues" element={<IssuesPage />} />
         <Route path="/opname" element={<OpnamePage />} />
-        <Route path="/hpp" element={<HPPPage />} />
+        <Route path="/hpp" element={<COGSPage />} />
         <Route path="/revenue" element={<RevenuePage />} />
         <Route path="/flash" element={<FlashCostPage />} />
         <Route path="/reports" element={<ReportsPage />} />
@@ -82,7 +82,7 @@ function ProtectedShell() {
 function LoginRoute() {
   const { user, loading } = useAuth();
   const location = useLocation();
-  if (loading) return <div className="loading-state">Memuat...</div>;
+  if (loading) return <div className="loading-state">Loading...</div>;
   if (user) {
     const from = location.state?.from?.pathname || "/dashboard";
     return <Navigate to={from} replace />;

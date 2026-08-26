@@ -11,7 +11,7 @@ import { printGRN } from "../lib/printDocs";
 const TEMPLATE = {
   headers: ["po_number", "item_sku", "qty", "price", "notes"],
   example: [
-    ["PO-0001", "PRT-0001", "20", "185000", "Kirim pagi"],
+    ["PO-0001", "PRT-0001", "20", "185000", "Morning delivery"],
     ["PO-0001", "PRT-0002", "5", "225000", ""],
   ],
 };
@@ -42,7 +42,7 @@ export default function ReceivingPage() {
 
   const openNew = () => {
     if (approvedPOs.length === 0) {
-      toast.error("Tidak ada PO yang siap diterima. Setujui PO terlebih dahulu.");
+      toast.error("No PO ready to receive. Approve a PO first.");
       return;
     }
     setSelectedPO(null);
@@ -83,9 +83,9 @@ export default function ReceivingPage() {
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!selectedPO) return toast.error("Pilih Purchase Order terlebih dahulu");
+    if (!selectedPO) return toast.error("Select a Purchase Order first");
     const cleanLines = lines.filter((l) => Number(l.qty) > 0);
-    if (cleanLines.length === 0) return toast.error("Minimal 1 item harus diterima");
+    if (cleanLines.length === 0) return toast.error("At least 1 item must be received");
     setSaving(true);
     try {
       await api.post("/receivings", {
@@ -101,7 +101,7 @@ export default function ReceivingPage() {
           price: Number(l.price),
         })),
       });
-      toast.success("Penerimaan tercatat & HPP diperbarui otomatis");
+      toast.success("Receiving recorded & COGS auto-updated");
       setModal(null);
       loadList();
       loadPOs();
@@ -117,9 +117,9 @@ export default function ReceivingPage() {
   return (
     <>
       <PageIntro
-        eyebrow="Operasional · penerimaan barang"
-        title="Penerimaan barang (GRN)"
-        subtitle="Setiap penerimaan wajib mengacu Purchase Order yang telah disetujui. HPP weighted-average diperbarui otomatis."
+        eyebrow="Operations · goods receiving"
+        title="Goods Received Note (GRN)"
+        subtitle="Every receiving must reference an approved Purchase Order. Weighted-average COGS is auto-updated."
         testid="receiving-title"
         action={
           <div className="action-cluster">
@@ -138,7 +138,7 @@ export default function ReceivingPage() {
                 className="primary-button"
                 onClick={openNew}
               >
-                <Plus size={17} /> Terima barang
+                <Plus size={17} /> Receive goods
               </button>
             )}
           </div>
@@ -149,40 +149,40 @@ export default function ReceivingPage() {
         <div className="info-strip" data-testid="approved-po-banner">
           <FileText size={16} />
           <span>
-            <strong>{approvedPOs.length}</strong> Purchase Order siap diterima
+            <strong>{approvedPOs.length}</strong> Purchase Orders ready to receive
           </span>
           <button className="text-button" onClick={openNew}>
-            Proses sekarang ›
+            Process now ›
           </button>
         </div>
       )}
       {canCreate && approvedPOs.length === 0 && (
         <div className="info-strip warning" data-testid="no-po-banner">
           <FileText size={16} />
-          <span>Tidak ada Purchase Order yang disetujui. Penerimaan tidak dapat dilakukan tanpa PO.</span>
+          <span>No approved Purchase Order. Receiving cannot proceed without a PO.</span>
         </div>
       )}
 
       <section className="panel">
-        <PanelHead title="Riwayat penerimaan" detail={`${list.length} GRN tercatat`} />
+        <PanelHead title="Receiving history" detail={`${list.length} GRN recorded`} />
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>No. GRN</th>
-                <th>Ref PO</th>
+                <th>GRN No.</th>
+                <th>PO Ref</th>
                 <th>Supplier</th>
                 <th>Outlet</th>
-                <th>Baris</th>
+                <th>Lines</th>
                 <th>Total</th>
-                <th>Diterima</th>
-                <th>Oleh</th>
+                <th>Received</th>
+                <th>By</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {list.length === 0 && (
-                <tr><td colSpan={9} style={{ textAlign: "center", padding: 40 }}>Belum ada penerimaan.</td></tr>
+                <tr><td colSpan={9} style={{ textAlign: "center", padding: 40 }}>No receivings yet.</td></tr>
               )}
               {list.map((g) => (
                 <tr key={g.id} data-testid={`grn-row-${g.id}`}>
@@ -203,9 +203,9 @@ export default function ReceivingPage() {
                       data-testid={`grn-print-${g.id}`}
                       className="small-button"
                       onClick={() => printGRN(g)}
-                      title="Cetak GRN"
+                      title="Print GRN"
                     >
-                      <Printer size={12} /> Cetak
+                      <Printer size={12} /> Print
                     </button>
                   </td>
                 </tr>
@@ -216,17 +216,17 @@ export default function ReceivingPage() {
       </section>
 
       {modal === "new" && (
-        <Modal title="Terima barang dari PO" onClose={() => setModal(null)}>
+        <Modal title="Receive goods from PO" onClose={() => setModal(null)}>
           <form onSubmit={submit}>
             <label className="field">
-              <span>Purchase Order yang diterima</span>
+              <span>Purchase Order being received</span>
               <select
                 data-testid="grn-po-select"
                 value={selectedPO?.id || ""}
                 onChange={(e) => onPickPO(e.target.value)}
                 required
               >
-                <option value="">-- Pilih PO yang disetujui --</option>
+                <option value="">-- Select approved PO --</option>
                 {approvedPOs.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.po_number} · {p.supplier} · {outletNames[p.outlet_code] || p.outlet_code} · {money(p.total)}
@@ -243,28 +243,28 @@ export default function ReceivingPage() {
                     <strong>{selectedPO.supplier}</strong>
                   </div>
                   <div>
-                    <span>Outlet tujuan</span>
+                    <span>Destination outlet</span>
                     <strong>{outletNames[selectedPO.outlet_code] || selectedPO.outlet_code}</strong>
                   </div>
                   <div>
-                    <span>Nilai PO</span>
+                    <span>PO value</span>
                     <strong>{money(selectedPO.total)}</strong>
                   </div>
                 </div>
 
                 <p className="eyebrow" style={{ marginTop: 18 }}>
-                  Baris item — sisa yang belum diterima ditampilkan; sesuaikan bila jumlah aktual berbeda
+                  Line items — remaining (not yet received) quantities shown; adjust if actual received differs
                 </p>
                 <div className="line-editor">
                   {lines.length === 0 && (
-                    <div className="empty-hint">Semua item pada PO ini sudah diterima penuh.</div>
+                    <div className="empty-hint">All items on this PO have been fully received.</div>
                   )}
                   {lines.map((l, idx) => (
                     <div className="line-row partial" key={idx}>
                       <div className="line-item-label">
                         <strong>{l.name}</strong>
                         <small>
-                          Order {l.ordered} · Sudah diterima {l.received} · Sisa <b>{l.remaining}</b> {l.unit}
+                          Ordered {l.ordered} · Received so far {l.received} · Remaining <b>{l.remaining}</b> {l.unit}
                         </small>
                       </div>
                       <input
@@ -275,41 +275,41 @@ export default function ReceivingPage() {
                         step="0.01"
                         value={l.qty}
                         onChange={(e) => updateLine(idx, "qty", e.target.value)}
-                        placeholder="Qty diterima"
+                        placeholder="Qty received"
                       />
                       <input
                         data-testid={`grn-line-price-${idx}`}
                         type="number"
                         value={l.price}
                         onChange={(e) => updateLine(idx, "price", e.target.value)}
-                        placeholder="Harga"
+                        placeholder="Price"
                       />
                       <div />
                     </div>
                   ))}
                 </div>
-                <div className="line-total">Total penerimaan: <strong>{money(linesTotal)}</strong></div>
+                <div className="line-total">Total received: <strong>{money(linesTotal)}</strong></div>
 
                 <label className="field" style={{ marginTop: 12 }}>
-                  <span>Catatan penerimaan</span>
+                  <span>Receiving notes</span>
                   <input
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Delivery order #..., kondisi barang, dsb"
+                    placeholder="Delivery order #..., item condition, etc."
                   />
                 </label>
               </>
             )}
 
             <div className="form-actions">
-              <button type="button" className="secondary-button" onClick={() => setModal(null)}>Batal</button>
+              <button type="button" className="secondary-button" onClick={() => setModal(null)}>Cancel</button>
               <button
                 data-testid="grn-save-button"
                 className="primary-button"
                 type="submit"
                 disabled={!selectedPO || saving}
               >
-                <Check size={16} /> {saving ? "Menyimpan..." : "Simpan penerimaan"}
+                <Check size={16} /> {saving ? "Saving..." : "Save receiving"}
               </button>
             </div>
           </form>
@@ -318,15 +318,15 @@ export default function ReceivingPage() {
 
       {modal === "upload" && (
         <BulkUploadDialog
-          title="Upload penerimaan (CSV)"
+          title="Upload receivings (CSV)"
           endpoint="/receivings/bulk-upload"
-          templateName="penerimaan_barang_template.csv"
+          templateName="receivings_template.csv"
           templateHeaders={TEMPLATE.headers}
           templateExample={TEMPLATE.example}
           instructions={
             <>
-              Wajib menyertakan <b>po_number</b> yang statusnya sudah <i>disetujui</i>. SKU pada
-              CSV harus cocok dengan item pada PO. HPP weighted-average diperbarui otomatis.
+              Must include <b>po_number</b> that has status <i>approved</i>. SKU in the
+              CSV must match items on the PO. Weighted-average COGS is auto-updated.
             </>
           }
           onClose={() => setModal(null)}

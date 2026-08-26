@@ -8,8 +8,8 @@ import { PageIntro, PanelHead, Badge } from "../components/UI";
 
 const compactMoney = (v) => {
   const n = Number(v || 0);
-  if (n >= 1_000_000_000) return `Rp${(n / 1_000_000_000).toFixed(1)}M`;
-  if (n >= 1_000_000) return `Rp${(n / 1_000_000).toFixed(1)}Jt`;
+  if (n >= 1_000_000_000) return `Rp${(n / 1_000_000_000).toFixed(1)}B`;
+  if (n >= 1_000_000) return `Rp${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `Rp${(n / 1_000).toFixed(0)}K`;
   return `Rp${n}`;
 };
@@ -46,8 +46,8 @@ export default function ReportsPage() {
     <>
       <PageIntro
         eyebrow="Analytics · reports"
-        title="Laporan operasional"
-        subtitle="Analisa purchasing, stok, dan cost dari satu tempat. Semua tabel bisa diunduh CSV."
+        title="Operational reports"
+        subtitle="Analyze purchasing, stock, and cost in one place. Every table can be exported to CSV."
         testid="reports-title"
       />
       <div className="tabs" data-testid="reports-tabs">
@@ -88,25 +88,25 @@ function POBySupplier() {
   const download = () => {
     exportCSV(
       `po-by-supplier-${today()}.csv`,
-      ["Supplier", "Total PO", "Nilai PO", "Nilai Diterima", "Outstanding", "Waiting", "Approved", "Partial", "Received", "Cancelled"],
+      ["Supplier", "Total PO", "PO value", "Received value", "Outstanding", "Waiting", "Approved", "Partial", "Received", "Cancelled"],
       data.rows.map((r) => [r.supplier, r.po_count, r.po_total, r.received_total, r.outstanding_value, r.waiting || 0, r.approved || 0, r.partial || 0, r.received || 0, r.cancelled || 0])
     );
   };
-  if (!data) return <div className="loading-state">Memuat...</div>;
+  if (!data) return <div className="loading-state">Loading...</div>;
   return (
     <>
       <ReportBar>
         <DateRange start={start} end={end} onStart={setStart} onEnd={setEnd} />
         <Summary items={[
           { label: "Supplier", value: data.totals.supplier_count },
-          { label: "Jumlah PO", value: data.totals.po_count },
-          { label: "Nilai PO", value: money(data.totals.po_total) },
+          { label: "PO count", value: data.totals.po_count },
+          { label: "PO value", value: money(data.totals.po_total) },
           { label: "Outstanding", value: money(data.totals.outstanding_value), tone: "amber" },
         ]} />
         <ExportBtn onClick={download} disabled={data.rows.length === 0} />
       </ReportBar>
       <ReportTable
-        headers={["Supplier", "PO", "Nilai PO", "Nilai diterima", "Outstanding", "Status distribusi"]}
+        headers={["Supplier", "PO", "PO value", "Received value", "Outstanding", "Status distribution"]}
         rows={data.rows.map((r) => [
           <strong>{r.supplier}</strong>,
           r.po_count,
@@ -141,22 +141,22 @@ function POOutstanding() {
     });
     exportCSV(
       `po-outstanding-${today()}.csv`,
-      ["No PO", "Supplier", "Outlet", "Status", "Hari terbuka", "Item", "Qty PO", "Qty diterima", "Qty sisa", "Unit", "Harga", "Nilai sisa"],
+      ["No PO", "Supplier", "Outlet", "Status", "Days open", "Item", "PO qty", "Qty received", "Remaining qty", "Unit", "Price", "Remaining value"],
       rows
     );
   };
-  if (!data) return <div className="loading-state">Memuat...</div>;
+  if (!data) return <div className="loading-state">Loading...</div>;
   return (
     <>
       <ReportBar>
         <Summary items={[
-          { label: "PO belum tuntas", value: data.totals.po_count },
-          { label: "Nilai outstanding", value: money(data.totals.outstanding_value), tone: "amber" },
+          { label: "Unfinished PO", value: data.totals.po_count },
+          { label: "Outstanding value", value: money(data.totals.outstanding_value), tone: "amber" },
         ]} />
         <ExportBtn onClick={download} disabled={data.rows.length === 0} />
       </ReportBar>
       {data.rows.length === 0 ? (
-        <div className="empty-hint" style={{ padding: 40 }}>Tidak ada PO outstanding — semua sudah tuntas atau belum ada PO.</div>
+        <div className="empty-hint" style={{ padding: 40 }}>No outstanding PO — all completed or no PO yet.</div>
       ) : (
         data.rows.map((p) => (
           <section className="panel" style={{ marginBottom: 14 }} key={p.id}>
@@ -166,14 +166,14 @@ function POOutstanding() {
                 <p>
                   {outletNames[p.outlet_code] || p.outlet_code} ·
                   <Badge tone={statusTone[p.status]} style={{ marginLeft: 6 }}>{statusLabels[p.status] || p.status}</Badge> ·
-                  {p.days_open != null && ` ${p.days_open} hari terbuka`} · Outstanding <strong>{money(p.outstanding_value)}</strong>
+                  {p.days_open != null && ` ${p.days_open} days open`} · Outstanding <strong>{money(p.outstanding_value)}</strong>
                 </p>
               </div>
             </div>
             <div className="table-wrap">
               <table>
                 <thead>
-                  <tr><th>Item</th><th>Qty PO</th><th>Diterima</th><th>Sisa</th><th>Nilai sisa</th></tr>
+                  <tr><th>Item</th><th>PO qty</th><th>Received</th><th>Remaining</th><th>Remaining value</th></tr>
                 </thead>
                 <tbody>
                   {p.lines.map((l, i) => (
@@ -208,32 +208,32 @@ function StockBalance() {
   const download = () => {
     exportCSV(
       `stock-balance-${today()}.csv`,
-      ["SKU", "Nama", "Kategori", "Outlet", "Unit", "Stok", "Min stok", "HPP", "Valuasi", "Low"],
+      ["SKU", "Name", "Category", "Outlet", "Unit", "Stock", "Min stock", "COGS", "Valuation", "Low"],
       data.rows.map((r) => [r.sku, r.name, r.category, r.outlet_code, r.unit, r.stock, r.min_stock, r.cost, r.value, r.low ? "YES" : ""])
     );
   };
-  if (!data) return <div className="loading-state">Memuat...</div>;
+  if (!data) return <div className="loading-state">Loading...</div>;
   return (
     <>
       <ReportBar>
         <label className="field small"><span>Outlet</span>
           <select data-testid="stock-balance-outlet" value={outlet} onChange={(e) => setOutlet(e.target.value)}>
-            <option value="all">Semua outlet</option>
+            <option value="all">All outlets</option>
             {outletsList.map((o) => <option key={o.code} value={o.code}>{o.name}</option>)}
           </select>
         </label>
-        <label className="field small"><span>Kategori</span>
-          <input data-testid="stock-balance-category" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Semua" />
+        <label className="field small"><span>Category</span>
+          <input data-testid="stock-balance-category" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="All" />
         </label>
         <Summary items={[
           { label: "Item", value: data.totals.item_count },
-          { label: "Valuasi total", value: money(data.totals.total_value), tone: "teal" },
+          { label: "Valuation total", value: money(data.totals.total_value), tone: "teal" },
           { label: "Low stock", value: data.totals.low_stock_count, tone: "amber" },
         ]} />
         <ExportBtn onClick={download} disabled={data.rows.length === 0} />
       </ReportBar>
       <ReportTable
-        headers={["SKU", "Nama", "Kategori", "Outlet", "Stok", "Min", "HPP", "Valuasi"]}
+        headers={["SKU", "Name", "Category", "Outlet", "Stock", "Min", "COGS", "Valuation"]}
         rows={data.rows.map((r) => [
           <Badge tone="neutral">{r.sku}</Badge>,
           <strong>{r.name}</strong>,
@@ -262,27 +262,27 @@ function StockMovement() {
   const download = () => {
     exportCSV(
       `stock-movement-${today()}.csv`,
-      ["Tanggal", "Ref", "Tipe", "Item", "Unit", "Masuk", "Keluar", "Nilai"],
+      ["Date", "Ref", "Type", "Item", "Unit", "In", "Out", "Value"],
       data.rows.map((r) => [r.date, r.ref, r.type, r.name, r.unit, r.qty_in, r.qty_out, r.value])
     );
   };
-  if (!data) return <div className="loading-state">Memuat...</div>;
+  if (!data) return <div className="loading-state">Loading...</div>;
   return (
     <>
       <ReportBar>
         <DateRange start={start} end={end} onStart={setStart} onEnd={setEnd} />
         <label className="field small"><span>Filter SKU</span>
-          <input data-testid="movement-sku" value={sku} onChange={(e) => setSku(e.target.value)} placeholder="Kosong = semua" />
+          <input data-testid="movement-sku" value={sku} onChange={(e) => setSku(e.target.value)} placeholder="Empty = all" />
         </label>
         <Summary items={[
-          { label: "Baris gerakan", value: data.totals.count },
-          { label: "Total masuk", value: `${data.totals.total_qty_in} · ${compactMoney(data.totals.total_value_in)}`, tone: "green" },
-          { label: "Total keluar", value: `${data.totals.total_qty_out} · ${compactMoney(data.totals.total_value_out)}`, tone: "amber" },
+          { label: "Movement lines", value: data.totals.count },
+          { label: "Total in", value: `${data.totals.total_qty_in} · ${compactMoney(data.totals.total_value_in)}`, tone: "green" },
+          { label: "Total out", value: `${data.totals.total_qty_out} · ${compactMoney(data.totals.total_value_out)}`, tone: "amber" },
         ]} />
         <ExportBtn onClick={download} disabled={data.rows.length === 0} />
       </ReportBar>
       <ReportTable
-        headers={["Tanggal", "Ref", "Tipe", "Item", "Masuk", "Keluar", "Nilai"]}
+        headers={["Date", "Ref", "Type", "Item", "In", "Out", "Value"]}
         rows={data.rows.map((r) => [
           <small>{formatDate(r.date)}</small>,
           <strong>{r.ref}</strong>,
@@ -313,11 +313,11 @@ function FlashCostFinancial() {
   const download = () => {
     exportCSV(
       `flash-cost-${start}_${end}.csv`,
-      ["Tanggal", "Konsumsi (cost)", "Revenue", "Persentase"],
+      ["Date", "Consumption (cost)", "Revenue", "Percentage"],
       data.daily.map((d) => [d.date, d.cost, d.revenue, d.percentage])
     );
   };
-  if (!data) return <div className="loading-state">Memuat...</div>;
+  if (!data) return <div className="loading-state">Loading...</div>;
   return (
     <>
       <ReportBar>
@@ -325,14 +325,14 @@ function FlashCostFinancial() {
         <Summary items={[
           { label: "Total cost", value: money(data.totals.total_cost), tone: "amber" },
           { label: "Total revenue", value: money(data.totals.total_revenue), tone: "green" },
-          { label: "Persentase", value: `${data.totals.percentage}%`, tone: data.totals.percentage <= 32 ? "green" : "amber" },
+          { label: "Percentage", value: `${data.totals.percentage}%`, tone: data.totals.percentage <= 32 ? "green" : "amber" },
         ]} />
         <ExportBtn onClick={download} disabled={data.daily.length === 0} />
       </ReportBar>
       <section className="panel">
-        <PanelHead title="Ringkasan per outlet" detail={`Periode ${data.period.start} → ${data.period.end}`} />
+        <PanelHead title="Overview per outlet" detail={`Period ${data.period.start} → ${data.period.end}`} />
         <ReportTable
-          headers={["Outlet", "Konsumsi", "Revenue", "Flash cost %"]}
+          headers={["Outlet", "Consumption", "Revenue", "Flash cost %"]}
           rows={data.by_outlet.map((r) => [
             <strong>{r.outlet_name}</strong>,
             money(r.cost),
@@ -342,9 +342,9 @@ function FlashCostFinancial() {
         />
       </section>
       <section className="panel" style={{ marginTop: 14 }}>
-        <PanelHead title="Rincian harian (semua outlet)" detail="Cost vs revenue" />
+        <PanelHead title="Daily breakdown (all outlets)" detail="Cost vs revenue" />
         <ReportTable
-          headers={["Tanggal", "Konsumsi", "Revenue", "Persentase"]}
+          headers={["Date", "Consumption", "Revenue", "Percentage"]}
           rows={data.daily.map((r) => [
             <strong>{r.date}</strong>,
             money(r.cost),
@@ -366,19 +366,19 @@ function LowStock() {
   const download = () => {
     exportCSV(
       `low-stock-${today()}.csv`,
-      ["SKU", "Nama", "Kategori", "Outlet", "Stok", "Min", "Perlu order", "Unit", "Supplier", "HPP"],
+      ["SKU", "Name", "Category", "Outlet", "Stock", "Min", "Need to order", "Unit", "Supplier", "COGS"],
       data.rows.map((r) => [r.sku, r.name, r.category, r.outlet_code, r.stock, r.min_stock, r.need_to_order, r.unit, r.supplier, r.cost])
     );
   };
-  if (!data) return <div className="loading-state">Memuat...</div>;
+  if (!data) return <div className="loading-state">Loading...</div>;
   return (
     <>
       <ReportBar>
-        <Summary items={[{ label: "Item low stock", value: data.totals.count, tone: "amber" }]} />
+        <Summary items={[{ label: "Low stock items", value: data.totals.count, tone: "amber" }]} />
         <ExportBtn onClick={download} disabled={data.rows.length === 0} />
       </ReportBar>
       <ReportTable
-        headers={["SKU", "Nama", "Kategori", "Outlet", "Stok", "Min", "Perlu order", "Supplier"]}
+        headers={["SKU", "Name", "Category", "Outlet", "Stock", "Min", "Need to order", "Supplier"]}
         rows={data.rows.map((r) => [
           <Badge tone="neutral">{r.sku}</Badge>,
           <strong>{r.name}</strong>,
@@ -404,31 +404,31 @@ function TopConsumed() {
   const download = () => {
     exportCSV(
       `top-consumed-${days}d-${today()}.csv`,
-      ["Item", "Unit", "Qty terpakai", "Nilai", "Jumlah transaksi"],
+      ["Item", "Unit", "Qty used", "Value", "Transactions"],
       data.rows.map((r) => [r.name, r.unit, r.qty, r.value, r.transactions])
     );
   };
-  if (!data) return <div className="loading-state">Memuat...</div>;
+  if (!data) return <div className="loading-state">Loading...</div>;
   return (
     <>
       <ReportBar>
-        <label className="field small"><span>Rentang hari</span>
+        <label className="field small"><span>Time range</span>
           <select data-testid="top-consumed-days" value={days} onChange={(e) => setDays(Number(e.target.value))}>
-            <option value={7}>7 hari</option>
-            <option value={14}>14 hari</option>
-            <option value={30}>30 hari</option>
-            <option value={60}>60 hari</option>
-            <option value={90}>90 hari</option>
+            <option value={7}>7 days</option>
+            <option value={14}>14 days</option>
+            <option value={30}>30 days</option>
+            <option value={60}>60 days</option>
+            <option value={90}>90 days</option>
           </select>
         </label>
         <Summary items={[
-          { label: "Item terpakai", value: data.totals.item_count },
-          { label: "Nilai total", value: money(data.totals.total_value), tone: "teal" },
+          { label: "Items used", value: data.totals.item_count },
+          { label: "Total value", value: money(data.totals.total_value), tone: "teal" },
         ]} />
         <ExportBtn onClick={download} disabled={data.rows.length === 0} />
       </ReportBar>
       <ReportTable
-        headers={["Peringkat", "Item", "Qty", "Nilai", "Transaksi"]}
+        headers={["Rank", "Item", "Qty", "Value", "Transactions"]}
         rows={data.rows.map((r, idx) => [
           <strong>#{idx + 1}</strong>,
           <><strong>{r.name}</strong> <small>{r.unit}</small></>,
@@ -448,10 +448,10 @@ function ReportBar({ children }) {
 function DateRange({ start, end, onStart, onEnd }) {
   return (
     <>
-      <label className="field small"><span>Dari</span>
+      <label className="field small"><span>From</span>
         <input type="date" value={start} onChange={(e) => onStart(e.target.value)} data-testid="report-start" />
       </label>
-      <label className="field small"><span>Sampai</span>
+      <label className="field small"><span>To</span>
         <input type="date" value={end} onChange={(e) => onEnd(e.target.value)} data-testid="report-end" />
       </label>
     </>
@@ -484,7 +484,7 @@ function ReportTable({ headers, rows }) {
           <thead><tr>{headers.map((h) => <th key={h}>{h}</th>)}</tr></thead>
           <tbody>
             {rows.length === 0 ? (
-              <tr><td colSpan={headers.length} style={{ textAlign: "center", padding: 40 }}>Tidak ada data.</td></tr>
+              <tr><td colSpan={headers.length} style={{ textAlign: "center", padding: 40 }}>No data.</td></tr>
             ) : (
               rows.map((r, i) => (
                 <tr key={i}>{r.map((c, j) => <td key={j}>{c}</td>)}</tr>

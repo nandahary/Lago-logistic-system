@@ -20,12 +20,12 @@ export default function FlashCostPage() {
     <>
       <PageIntro
         eyebrow="Finance · daily control"
-        title="Flash cost harian"
-        subtitle="Konsumsi bahan baku dibandingkan revenue tiap outlet."
+        title="Daily flash cost"
+        subtitle="Raw material consumption compared to revenue per outlet."
         testid="flash-title"
         action={
           <label className="field" style={{ minWidth: 200 }}>
-            <span>Tanggal</span>
+            <span>Date</span>
             <input
               data-testid="flash-date-input"
               type="date"
@@ -35,37 +35,37 @@ export default function FlashCostPage() {
           </label>
         }
       />
-      {!data && <div className="loading-state">Memuat...</div>}
+      {!data && <div className="loading-state">Loading...</div>}
       {data && (
         <>
           <div className="metric-grid">
             <div className="metric" data-testid="flash-total-cost">
-              <span>Total konsumsi</span>
+              <span>Total consumption</span>
               <strong>{money(data.total_cost)}</strong>
-              <small>Semua outlet</small>
+              <small>All outlets</small>
             </div>
             <div className="metric" data-testid="flash-total-revenue">
               <span>Total revenue</span>
               <strong>{money(data.total_revenue)}</strong>
-              <small>Input harian</small>
+              <small>Daily input</small>
             </div>
             <div className="metric" data-testid="flash-total-pct">
-              <span>Flash cost total</span>
+              <span>Total flash cost</span>
               <strong>{data.total_percentage}%</strong>
               <small>Target &lt; 32%</small>
             </div>
           </div>
           <section className="panel">
-            <PanelHead title="Detail per outlet" detail={`Tanggal ${data.date}`} />
+            <PanelHead title="Detail per outlet" detail={`Date ${data.date}`} />
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th>Outlet</th>
-                    <th>Tipe</th>
-                    <th>Konsumsi</th>
+                    <th>Type</th>
+                    <th>Consumption</th>
                     <th>Revenue</th>
-                    <th>Persentase</th>
+                    <th>Percentage</th>
                   </tr>
                 </thead>
                 <tbody>

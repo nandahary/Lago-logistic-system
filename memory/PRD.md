@@ -1,45 +1,55 @@
 # LAGO BALI · Inventory & F&B OS — PRD
 
 ## Original problem statement
-Aplikasi untuk mengontrol inventory perusahaan hotel dan F&B: order barang, penerimaan, barang keluar, stock opname, HPP, flash cost. Digunakan oleh **Lago Bali**, dibuat oleh **NANDA HARY**.
+Aplikasi untuk mengontrol inventory perusahaan hotel dan F&B: order barang, penerimaan, barang keluar, stock opname, HPP, flash cost. Digunakan oleh **Lago Bali**, dibuat oleh **NANDA HARY**. UI harus dalam Bahasa Inggris.
 
 ## User personas & roles
-- **Admin** — semua akses
-- **Purchasing** — buat PO
-- **Warehouse (Gudang)** — terima barang, catat pengeluaran, stock opname
+- **Admin** — full access
+- **Purchasing** — create PO
+- **Warehouse** — receive goods, record issues, stock opname
 - **Finance** — approve PO, approve opname, input revenue, monitor flash cost
 
 ## Architecture
 - Backend: FastAPI + MongoDB, JWT Bearer auth (12h TTL), routes under `/api`
 - Frontend: React 19 + Tailwind + shadcn/ui + recharts
-- Weighted-average HPP di penerimaan barang
-- Flash cost = total_konsumsi_harian / revenue_harian per outlet
+- Weighted-average COGS on receiving
+- Flash cost = daily_consumption / daily_revenue per outlet
 
-## Modules implemented (2026-08-26)
+## Modules implemented
 - Auth: login/me, admin-seeded users, RBAC
-- Master barang (item CRUD + SKU + search by name/SKU + CSV upload)
-- Purchase Order (create by purchasing, approve/cancel by finance, CSV upload)
-- Penerimaan barang (GRN) — **WAJIB terkait Approved PO**, weighted-average HPP auto-update, CSV upload (po_number-based)
-- Barang keluar (issues) — deduct stock, stamp cost_at_issue, CSV upload
+- Item master (CRUD + manual SKU + search + CSV bulk upload)
+- Purchase Order (create by purchasing, approve/cancel by finance, CSV upload, print PO with Lago logo)
+- Receiving (GRN) — **must reference approved PO**, partial receive supported, weighted-average COGS auto-update, CSV upload, print GRN
+- Stock out (issues) — deduct stock, stamp cost_at_issue, CSV upload
 - Stock opname — warehouse count, finance approve → adjust stock
-- Revenue harian — upsert per date+outlet
+- Daily revenue — upsert per date+outlet
 - Flash cost — per-outlet daily cost/revenue/pct
-- HPP & Resep — resep menu dengan HPP computed
-- Dashboard analytics — flash cost trend 7 hari, top consumed items, category donut, outlet valuation, procurement window
+- COGS & Recipes — menu recipes with computed COGS + margin
+- Dashboard analytics — 7-day flash cost trend, top consumed items, category donut, outlet valuation, procurement window
+- Supplier drill-down page with metrics + PO/GRN history
+- 7-tab Reports module (PO/supplier, PO outstanding, stock balance, stock movement, financial flash cost, low stock, top consumed) — CSV export each
+- User management (admin CRUD + reset transactions)
 
-## Seed data
-- 4 users (admin, purchasing, warehouse, finance)
-- 4 outlets (main_wh, kitchen, bar, housekeeping)
-- 13 items dengan category-prefix SKU (PRT/DRY/BEV/VEG/AMN)
-- 1 PO contoh (waiting_approval)
+## Seed data (current DB state)
+- 4 users (admin/purchasing/warehouse/finance @lagobali.com)
+- 13 outlets (Main Warehouse, Kitchen, Bar, Housekeeping, Dusk, Dawn, Pontoon, Beach House, Sundeck, Firm, Kitchen Dusk, Kitchen BOH, Office)
+- No sample items / suppliers / transactions (wiped for production readiness)
+
+## Changelog
+- **2026-08-26**: Full UI + backend error messages translated Indonesian → English.
+  - Fixed compile break where sed renamed `HPPPage.jsx` import to `COGSPage.jsx` without renaming file.
+  - Renamed file `HPPPage.jsx` → `COGSPage.jsx`.
+  - Translated all pages: Login, Dashboard, Inventory, Orders, Receiving, Issues, Opname, Reports, Suppliers, SupplierDetail, Users, COGS, Revenue, FlashCost.
+  - Translated `printDocs.js` (PO/GRN print templates), `format.js` (money/date locale → en-US, outletNames), `BulkUpload.jsx`.
+  - Translated all backend HTTPException messages returned to UI.
+  - Updated `Main Warehouse` outlet name (was "Warehouse utama") + `Budi (Warehouse)` user name (was "Budi (Gudang)") both in seed and existing DB.
 
 ## Testing status
-- Backend: 47/47 pytest pass
-- Frontend: E2E all core flows pass
+- App compiles ✓
+- Backend curl smoke test: login, users, outlets, dashboard, low-stock report, create/delete supplier + item ✓
+- Frontend visual: Login, Dashboard, Orders, Users, Reports all render in English ✓
 
 ## Backlog (P0/P1/P2)
-- P1: URL routing (react-router) — deep-link/refresh currently resets to Dashboard
-- P1: Prevent partial-receive double-charge (track received_qty per line)
-- P2: Recipe CRUD (edit/delete)
-- P2: Purge/reset endpoints for demo cleanup
-- P2: Supplier master + PO auto-fill supplier catalog
+- P2: Consider printable Opname adjustment sheet
+- P2: Multi-currency support (currently IDR only, Rp symbol via money formatter)
+- P2: Refactor `server.py` (1400+ lines) into `/app/backend/routes/` modules

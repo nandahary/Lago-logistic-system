@@ -30,7 +30,7 @@ export default function RevenuePage() {
     setSaving(true);
     try {
       await api.post("/revenues", { date, outlet_code: outletCode, amount: Number(amount || 0) });
-      toast.success("Revenue tersimpan");
+      toast.success("Revenue saved");
       setModal(false);
       load();
     } catch (err) {
@@ -43,9 +43,9 @@ export default function RevenuePage() {
   return (
     <>
       <PageIntro
-        eyebrow="Finance · pendapatan harian"
-        title="Revenue harian"
-        subtitle="Input revenue tiap outlet setiap hari agar flash cost dapat dihitung."
+        eyebrow="Finance · daily revenue"
+        title="Daily revenue"
+        subtitle="Enter each outlet's daily revenue so flash cost can be computed."
         testid="revenue-title"
         action={
           canEdit && (
@@ -56,21 +56,21 @@ export default function RevenuePage() {
         }
       />
       <section className="panel">
-        <PanelHead title="Riwayat revenue" detail={`${list.length} entri`} />
+        <PanelHead title="Revenue history" detail={`${list.length} entries`} />
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Tanggal</th>
+                <th>Date</th>
                 <th>Outlet</th>
                 <th>Amount</th>
-                <th>Diperbarui</th>
-                <th>Oleh</th>
+                <th>Updated</th>
+                <th>By</th>
               </tr>
             </thead>
             <tbody>
               {list.length === 0 && (
-                <tr><td colSpan={5} style={{ textAlign: "center", padding: 40 }}>Belum ada data revenue.</td></tr>
+                <tr><td colSpan={5} style={{ textAlign: "center", padding: 40 }}>No revenue data yet.</td></tr>
               )}
               {list.map((r) => (
                 <tr key={r.id} data-testid={`revenue-row-${r.id}`}>
@@ -89,7 +89,7 @@ export default function RevenuePage() {
       {modal && (
         <Modal title="Input revenue" onClose={() => setModal(false)}>
           <form className="form-grid" onSubmit={submit}>
-            <Field label="Tanggal" testid="revenue-date-input" type="date" value={date} onChange={setDate} />
+            <Field label="Date" testid="revenue-date-input" type="date" value={date} onChange={setDate} />
             <SelectField
               label="Outlet"
               testid="revenue-outlet-select"
@@ -101,9 +101,9 @@ export default function RevenuePage() {
             />
             <Field label="Amount (IDR)" testid="revenue-amount-input" type="number" value={amount} onChange={setAmount} />
             <div className="form-actions">
-              <button type="button" className="secondary-button" onClick={() => setModal(false)}>Batal</button>
+              <button type="button" className="secondary-button" onClick={() => setModal(false)}>Cancel</button>
               <button data-testid="revenue-save-button" className="primary-button" type="submit" disabled={saving}>
-                <Check size={16} /> {saving ? "Menyimpan..." : "Simpan"}
+                <Check size={16} /> {saving ? "Saving..." : "Save"}
               </button>
             </div>
           </form>

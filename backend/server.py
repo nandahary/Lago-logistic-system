@@ -87,7 +87,7 @@ def to_oid(value: str) -> ObjectId:
     try:
         return ObjectId(value)
     except Exception:
-        raise HTTPException(status_code=400, detail=f"ID tidak valid: {value}")
+        raise HTTPException(status_code=400, detail=f"Invalid ID: {value}")
 
 
 async def get_current_user(
@@ -255,7 +255,7 @@ async def login(payload: LoginIn):
     email = payload.email.lower().strip()
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(payload.password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Email atau password salah")
+        raise HTTPException(status_code=401, detail="Invalid email or password")
     token = create_access_token(str(user["_id"]), user["email"], user["role"])
     return {"token": token, "user": serialize_doc(user)}
 
@@ -269,9 +269,9 @@ async def me(user: dict = Depends(get_current_user)):
 async def register(payload: UserCreateIn, user: dict = Depends(require_roles("admin"))):
     email = payload.email.lower().strip()
     if await db.users.find_one({"email": email}):
-        raise HTTPException(status_code=400, detail="Email sudah terdaftar")
+        raise HTTPException(status_code=400, detail="Email already registered")
     if payload.role not in {"admin", "purchasing", "warehouse", "finance"}:
-        raise HTTPException(status_code=400, detail="Role tidak valid")
+        raise HTTPException(status_code=400, detail="Invalid role")
     doc = {
         "email": email,
         "password_hash": hash_password(payload.password),
@@ -307,16 +307,16 @@ async def update_user(
         updates["name"] = payload.name
     if payload.role is not None:
         if payload.role not in {"admin", "purchasing", "warehouse", "finance"}:
-            raise HTTPException(status_code=400, detail="Role tidak valid")
+            raise HTTPException(status_code=400, detail="Invalid role")
         updates["role"] = payload.role
     if payload.password:
         updates["password_hash"] = hash_password(payload.password)
     if not updates:
-        raise HTTPException(status_code=400, detail="Tidak ada perubahan")
+        raise HTTPException(status_code=400, detail="No changes")
     updates["updated_at"] = iso(now_utc())
     result = await db.users.update_one({"_id": to_oid(user_id)}, {"$set": updates})
     if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="User tidak ditemukan")
+        raise HTTPException(status_code=404, detail="User not found")
     doc = await db.users.find_one({"_id": to_oid(user_id)})
     return serialize_doc(doc)
 
@@ -326,15 +326,15 @@ async def delete_user(
     user_id: str, current_user: dict = Depends(require_roles("admin"))
 ):
     if str(current_user.get("id")) == user_id:
-        raise HTTPException(status_code=400, detail="Tidak dapat menghapus akun sendiri")
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
     target = await db.users.find_one({"_id": to_oid(user_id)})
     if not target:
-        raise HTTPException(status_code=404, detail="User tidak ditemukan")
+        raise HTTPException(status_code=404, detail="User not found")
     # Prevent deleting the last admin
     if target.get("role") == "admin":
         admin_count = await db.users.count_documents({"role": "admin"})
         if admin_count <= 1:
-            raise HTTPException(status_code=400, detail="Minimal harus ada 1 admin")
+            raise HTTPException(status_code=400, detail="At least 1 admin must remain")
     await db.users.delete_one({"_id": to_oid(user_id)})
     return {"deleted": True}
 
@@ -351,7 +351,7 @@ async def list_outlets(user: dict = Depends(get_current_user)):
 @api.post("/outlets")
 async def create_outlet(payload: OutletIn, user: dict = Depends(require_roles("admin"))):
     if await db.outlets.find_one({"code": payload.code}):
-        raise HTTPException(status_code=400, detail="Kode outlet sudah ada")
+        raise HTTPException(status_code=400, detail="Outlet code already exists")
     doc = payload.model_dump()
     doc["created_at"] = iso(now_utc())
     res = await db.outlets.insert_one(doc)
@@ -387,7 +387,7 @@ async def create_supplier(
 ):
     code = payload.code or await next_supplier_code()
     if await db.suppliers.find_one({"code": code}):
-        raise HTTPException(status_code=400, detail="Kode supplier sudah ada")
+        raise HTTPException(status_code=400, detail="Supplier code already exists")
     doc = payload.model_dump()
     doc["code"] = code
     doc["created_at"] = iso(now_utc())
@@ -407,7 +407,7 @@ async def update_supplier(
     updates["updated_at"] = iso(now_utc())
     result = await db.suppliers.update_one({"_id": to_oid(supplier_id)}, {"$set": updates})
     if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Supplier tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Supplier not found")
     doc = await db.suppliers.find_one({"_id": to_oid(supplier_id)})
     return serialize_doc(doc)
 
@@ -418,7 +418,7 @@ async def delete_supplier(
 ):
     result = await db.suppliers.delete_one({"_id": to_oid(supplier_id)})
     if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Supplier tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Supplier not found")
     return {"deleted": True}
 
 
@@ -426,7 +426,7 @@ async def delete_supplier(
 async def get_supplier(supplier_id: str, user: dict = Depends(get_current_user)):
     doc = await db.suppliers.find_one({"_id": to_oid(supplier_id)})
     if not doc:
-        raise HTTPException(status_code=404, detail="Supplier tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Supplier not found")
     return serialize_doc(doc)
 
 
@@ -435,7 +435,7 @@ async def supplier_orders(supplier_id: str, user: dict = Depends(get_current_use
     """Return purchase orders that reference this supplier (by name match)."""
     supplier = await db.suppliers.find_one({"_id": to_oid(supplier_id)})
     if not supplier:
-        raise HTTPException(status_code=404, detail="Supplier tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Supplier not found")
     # Match by exact supplier name (POs store name as string)
     orders = (
         await db.purchase_orders.find({"supplier": supplier["name"]})
@@ -479,13 +479,13 @@ async def suppliers_bulk_upload(
     content = await file.read()
     rows = _parse_csv(content)
     if not rows:
-        raise HTTPException(status_code=400, detail="CSV kosong atau format tidak dikenali")
+        raise HTTPException(status_code=400, detail="CSV is empty or format not recognized")
     created, updated, errors = 0, 0, []
     for i, r in enumerate(rows, start=2):
         try:
             name = (r.get("name") or "").strip()
             if not name:
-                errors.append(f"Baris {i}: nama supplier kosong")
+                errors.append(f"Line {i}: supplier name is empty")
                 continue
             code = (r.get("code") or "").strip() or await next_supplier_code()
             lead = 0
@@ -514,7 +514,7 @@ async def suppliers_bulk_upload(
                 await db.suppliers.insert_one(doc)
                 created += 1
         except Exception as e:
-            errors.append(f"Baris {i}: {str(e)}")
+            errors.append(f"Lines {i}: {str(e)}")
     return {"created": created, "updated": updated, "errors": errors, "total": len(rows)}
 
 
@@ -523,8 +523,8 @@ async def suppliers_bulk_upload(
 # ==============================================================================
 @api.post("/admin/reset-transactions")
 async def reset_transactions(user: dict = Depends(require_roles("admin"))):
-    """Hapus semua transaksi (PO, GRN, Issue, Opname, Revenue, Recipe) dan
-    reset stok/HPP item ke nilai seed. Master data (users, outlets, suppliers, items metadata) tetap."""
+    """Delete semua transaksi (PO, GRN, Issue, Opname, Revenue, Recipe) dan
+    reset stok/COGS item ke nilai seed. Master data (users, outlets, suppliers, items metadata) tetap."""
     pos = await db.purchase_orders.delete_many({})
     grns = await db.receivings.delete_many({})
     iss = await db.issues.delete_many({})
@@ -548,7 +548,7 @@ async def reset_transactions(user: dict = Depends(require_roles("admin"))):
 
 
 # ==============================================================================
-# Items (Master Barang)
+# Items (Master Item)
 # ==============================================================================
 async def next_sku() -> str:
     count = await db.items.count_documents({})
@@ -579,10 +579,10 @@ async def create_item(
     payload: ItemIn, user: dict = Depends(require_roles("admin", "purchasing", "warehouse"))
 ):
     if not payload.sku or not payload.sku.strip():
-        raise HTTPException(status_code=400, detail="Kode SKU wajib diisi")
+        raise HTTPException(status_code=400, detail="SKU is required")
     sku = payload.sku.strip()
     if await db.items.find_one({"sku": sku}):
-        raise HTTPException(status_code=400, detail=f"SKU '{sku}' sudah digunakan")
+        raise HTTPException(status_code=400, detail=f"SKU '{sku}' is already in use")
     doc = payload.model_dump()
     doc["sku"] = sku
     doc["created_at"] = iso(now_utc())
@@ -602,7 +602,7 @@ async def update_item(
     updates["updated_at"] = iso(now_utc())
     result = await db.items.update_one({"_id": to_oid(item_id)}, {"$set": updates})
     if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Item tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Item not found")
     doc = await db.items.find_one({"_id": to_oid(item_id)})
     return serialize_doc(doc)
 
@@ -611,7 +611,7 @@ async def update_item(
 async def delete_item(item_id: str, user: dict = Depends(require_roles("admin"))):
     result = await db.items.delete_one({"_id": to_oid(item_id)})
     if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Item tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Item not found")
     return {"deleted": True}
 
 
@@ -658,9 +658,9 @@ async def create_order(
 async def approve_order(order_id: str, user: dict = Depends(require_roles("finance", "admin"))):
     order = await db.purchase_orders.find_one({"_id": to_oid(order_id)})
     if not order:
-        raise HTTPException(status_code=404, detail="PO tidak ditemukan")
+        raise HTTPException(status_code=404, detail="PO not found")
     if order["status"] != "waiting_approval":
-        raise HTTPException(status_code=400, detail="PO tidak dalam status menunggu approval")
+        raise HTTPException(status_code=400, detail="PO is not in waiting approval status")
     await db.purchase_orders.update_one(
         {"_id": to_oid(order_id)},
         {"$set": {"status": "approved", "approved_by": user["email"], "approved_at": iso(now_utc())}},
@@ -681,7 +681,7 @@ async def cancel_order(
 
 
 # ==============================================================================
-# Receiving (GRN) — updates stock + weighted-average HPP
+# Receiving (GRN) — updates stock + weighted-average COGS
 # ==============================================================================
 async def next_grn_number() -> str:
     count = await db.receivings.count_documents({})
@@ -692,7 +692,7 @@ async def apply_weighted_average(item_id: str, qty: float, price: float):
     """Update item stock and weighted-average cost after receiving."""
     item = await db.items.find_one({"_id": to_oid(item_id)})
     if not item:
-        raise HTTPException(status_code=404, detail=f"Item {item_id} tidak ditemukan")
+        raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
     current_stock = float(item.get("stock", 0))
     current_cost = float(item.get("cost", 0))
     if current_stock + qty <= 0:
@@ -717,20 +717,20 @@ async def list_receivings(user: dict = Depends(get_current_user)):
 async def create_receiving(
     payload: ReceivingCreateIn, user: dict = Depends(require_roles("warehouse", "admin"))
 ):
-    # Penerimaan WAJIB terkait dengan Purchase Order yang sudah disetujui
+    # Receiving MUST be linked to an approved Purchase Order
     if not payload.po_id:
         raise HTTPException(
             status_code=400,
-            detail="Penerimaan barang wajib merujuk Purchase Order. Buat & setujui PO terlebih dahulu.",
+            detail="Receiving must reference a Purchase Order. Create & approve a PO first.",
         )
     po = await db.purchase_orders.find_one({"_id": to_oid(payload.po_id)})
     if not po:
-        raise HTTPException(status_code=404, detail="Purchase Order tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Purchase Order not found")
     # Support partial receive: allow status "approved" and "partial"
     if po["status"] not in ("approved", "partial"):
         raise HTTPException(
             status_code=400,
-            detail=f"PO {po['po_number']} tidak dapat diterima (status: {po['status']})",
+            detail=f"PO {po['po_number']} cannot be received (status: {po['status']})",
         )
     # Build a map of PO lines by item_id
     po_lines_by_item = {str(it["item_id"]): it for it in po["items"]}
@@ -740,15 +740,15 @@ async def create_receiving(
         if not po_line:
             raise HTTPException(
                 status_code=400,
-                detail=f"Item {line.name} tidak terdapat pada PO {po['po_number']}",
+                detail=f"Item {line.name} is not on PO {po['po_number']}",
             )
         remaining = float(po_line["qty"]) - float(po_line.get("received_qty", 0))
         if line.qty <= 0:
-            raise HTTPException(status_code=400, detail=f"Qty {line.name} harus > 0")
+            raise HTTPException(status_code=400, detail=f"Qty of {line.name} must be > 0")
         if line.qty > remaining + 1e-9:
             raise HTTPException(
                 status_code=400,
-                detail=f"Qty {line.name} melebihi sisa PO ({remaining} {po_line.get('unit','')} tersedia)",
+                detail=f"Qty of {line.name} exceeds PO remainder ({remaining} {po_line.get('unit','')} available)",
             )
 
     total = 0.0
@@ -798,7 +798,7 @@ async def create_receiving(
 
 
 # ==============================================================================
-# Issue (Barang Keluar) — deducts stock, records cost at time of issue
+# Issue (Item Logout) — deducts stock, records cost at time of issue
 # ==============================================================================
 async def next_issue_number() -> str:
     count = await db.issues.count_documents({})
@@ -820,11 +820,11 @@ async def create_issue(
     for line in payload.items:
         item = await db.items.find_one({"_id": to_oid(line.item_id)})
         if not item:
-            raise HTTPException(status_code=404, detail=f"Item {line.name} tidak ditemukan")
+            raise HTTPException(status_code=404, detail=f"Item {line.name} not found")
         if float(item.get("stock", 0)) < line.qty:
             raise HTTPException(
                 status_code=400,
-                detail=f"Stok {line.name} tidak mencukupi (tersedia {item.get('stock', 0)})",
+                detail=f"Insufficient stock for {line.name} (available {item.get('stock', 0)})",
             )
         cost_at_issue = float(item.get("cost", 0))
         new_stock = float(item.get("stock", 0)) - line.qty
@@ -877,7 +877,7 @@ async def create_opname(
     for line in payload.items:
         item = await db.items.find_one({"_id": to_oid(line.item_id)})
         if not item:
-            raise HTTPException(status_code=404, detail=f"Item {line.name} tidak ditemukan")
+            raise HTTPException(status_code=404, detail=f"Item {line.name} not found")
         sys_qty = float(item.get("stock", 0))
         variance = line.physical_qty - sys_qty
         variance_value = variance * float(item.get("cost", 0))
@@ -916,9 +916,9 @@ async def approve_opname(
 ):
     op = await db.opnames.find_one({"_id": to_oid(opname_id)})
     if not op:
-        raise HTTPException(status_code=404, detail="Opname tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Stock take not found")
     if op["status"] == "approved":
-        raise HTTPException(status_code=400, detail="Opname sudah disetujui")
+        raise HTTPException(status_code=400, detail="Stock take already approved")
     # Adjust stock in items to physical quantities
     for line in op["items"]:
         await db.items.update_one(
@@ -1047,7 +1047,7 @@ async def dashboard(user: dict = Depends(get_current_user)):
         activities.append(
             {
                 "type": "receiving",
-                "label": f"Penerimaan {r['grn_number']} selesai",
+                "label": f"Receiving {r['grn_number']} selesai",
                 "detail": f"{r['supplier']} · {sum(l['qty'] for l in r['items'])} item",
                 "at": r["received_at"],
             }
@@ -1056,7 +1056,7 @@ async def dashboard(user: dict = Depends(get_current_user)):
         activities.append(
             {
                 "type": "issue",
-                "label": f"Barang keluar ke {r['to_outlet']}",
+                "label": f"Stock out ke {r['to_outlet']}",
                 "detail": f"{r['issue_number']} · {sum(l['qty'] for l in r['items'])} item",
                 "at": r["issued_at"],
             }
@@ -1083,7 +1083,7 @@ async def dashboard(user: dict = Depends(get_current_user)):
 
 
 # ==============================================================================
-# HPP — recipes / cost per menu
+# COGS — recipes / cost per menu
 # ==============================================================================
 class RecipeLineIn(BaseModel):
     item_id: str
@@ -1167,17 +1167,17 @@ async def items_bulk_upload(
     content = await file.read()
     rows = _parse_csv(content)
     if not rows:
-        raise HTTPException(status_code=400, detail="CSV kosong atau format tidak dikenali")
+        raise HTTPException(status_code=400, detail="CSV is empty or format not recognized")
     created, updated, errors = 0, 0, []
     for i, r in enumerate(rows, start=2):
         try:
             name = r.get("name", "").strip()
             if not name:
-                errors.append(f"Baris {i}: nama barang kosong")
+                errors.append(f"Line {i}: item name is empty")
                 continue
             sku = r.get("sku", "").strip()
             if not sku:
-                errors.append(f"Baris {i}: kolom sku wajib diisi")
+                errors.append(f"Line {i}: sku column is required")
                 continue
             doc = {
                 "sku": sku,
@@ -1200,7 +1200,7 @@ async def items_bulk_upload(
                 await db.items.insert_one(doc)
                 created += 1
         except Exception as e:
-            errors.append(f"Baris {i}: {str(e)}")
+            errors.append(f"Line {i}: {str(e)}")
     return {"created": created, "updated": updated, "errors": errors, "total": len(rows)}
 
 
@@ -1214,7 +1214,7 @@ async def orders_bulk_upload(
     content = await file.read()
     rows = _parse_csv(content)
     if not rows:
-        raise HTTPException(status_code=400, detail="CSV kosong atau format tidak dikenali")
+        raise HTTPException(status_code=400, detail="CSV is empty or format not recognized")
     groups: Dict[str, List[dict]] = {}
     for i, r in enumerate(rows, start=2):
         ref = r.get("po_ref", "") or f"batch-{i}"
@@ -1226,14 +1226,14 @@ async def orders_bulk_upload(
             outlet_code = group[0].get("outlet_code", "main_wh") or "main_wh"
             notes = group[0].get("notes", "")
             if not supplier:
-                errors.append(f"Grup {ref}: supplier kosong")
+                errors.append(f"Group {ref}: supplier is empty")
                 continue
             items_out = []
             for row in group:
                 sku = row.get("item_sku", "").strip()
                 item = await db.items.find_one({"sku": sku})
                 if not item:
-                    errors.append(f"Baris {row['row']}: SKU '{sku}' tidak ditemukan")
+                    errors.append(f"Line {row['row']}: SKU '{sku}' not found")
                     continue
                 qty = _num(row.get("qty"))
                 price = _num(row.get("price"), default=float(item.get("cost", 0)))
@@ -1265,7 +1265,7 @@ async def orders_bulk_upload(
             await db.purchase_orders.insert_one(doc)
             created += 1
         except Exception as e:
-            errors.append(f"Grup {ref}: {str(e)}")
+            errors.append(f"Group {ref}: {str(e)}")
     return {"created": created, "errors": errors, "total_rows": len(rows)}
 
 
@@ -1275,11 +1275,11 @@ async def receivings_bulk_upload(
     user: dict = Depends(require_roles("warehouse", "admin")),
 ):
     """CSV header: po_number,item_sku,qty,price[,notes]
-    Rows grouped by po_number → one GRN per approved PO. Applies weighted-average HPP."""
+    Rows grouped by po_number → one GRN per approved PO. Applies weighted-average COGS."""
     content = await file.read()
     rows = _parse_csv(content)
     if not rows:
-        raise HTTPException(status_code=400, detail="CSV kosong atau format tidak dikenali")
+        raise HTTPException(status_code=400, detail="CSV is empty or format not recognized")
     groups: Dict[str, List[dict]] = {}
     for i, r in enumerate(rows, start=2):
         ref = (r.get("po_number") or "").strip()
@@ -1291,10 +1291,10 @@ async def receivings_bulk_upload(
         try:
             po = await db.purchase_orders.find_one({"po_number": po_number})
             if not po:
-                errors.append(f"PO {po_number}: tidak ditemukan")
+                errors.append(f"PO {po_number}: not found")
                 continue
             if po["status"] not in ("approved", "partial"):
-                errors.append(f"PO {po_number}: tidak dapat diterima (status {po['status']})")
+                errors.append(f"PO {po_number}: cannot receive (status {po['status']})")
                 continue
             po_lines_by_id = {str(it["item_id"]): it for it in po["items"]}
             po_skus = {}
@@ -1308,7 +1308,7 @@ async def receivings_bulk_upload(
                 sku = row.get("item_sku", "").strip()
                 if sku not in po_skus:
                     errors.append(
-                        f"Baris {row['row']}: SKU '{sku}' tidak ada dalam PO {po_number}"
+                        f"Line {row['row']}: SKU '{sku}' not on PO {po_number}"
                     )
                     continue
                 item_id = po_skus[sku]
@@ -1318,11 +1318,11 @@ async def receivings_bulk_upload(
                 po_line = po_lines_by_id.get(item_id)
                 remaining = float(po_line["qty"]) - float(po_line.get("received_qty", 0))
                 if qty <= 0:
-                    errors.append(f"Baris {row['row']}: qty harus > 0")
+                    errors.append(f"Line {row['row']}: qty must be > 0")
                     continue
                 if qty > remaining + 1e-9:
                     errors.append(
-                        f"Baris {row['row']}: qty {qty} melebihi sisa PO {po_number} ({remaining} tersisa)"
+                        f"Line {row['row']}: qty {qty} exceeds PO {po_number} remainder ({remaining} left)"
                     )
                     continue
                 new_stock, new_cost = await apply_weighted_average(item_id, qty, price)
@@ -1387,7 +1387,7 @@ async def issues_bulk_upload(
     content = await file.read()
     rows = _parse_csv(content)
     if not rows:
-        raise HTTPException(status_code=400, detail="CSV kosong atau format tidak dikenali")
+        raise HTTPException(status_code=400, detail="CSV is empty or format not recognized")
     groups: Dict[str, List[dict]] = {}
     for i, r in enumerate(rows, start=2):
         ref = r.get("issue_ref", "") or f"batch-{i}"
@@ -1399,19 +1399,19 @@ async def issues_bulk_upload(
             to_outlet = group[0].get("to_outlet", "").strip()
             notes = group[0].get("notes", "")
             if not to_outlet:
-                errors.append(f"Grup {ref}: to_outlet kosong")
+                errors.append(f"Group {ref}: to_outlet is empty")
                 continue
             lines, total_cost = [], 0.0
             for row in group:
                 sku = row.get("item_sku", "").strip()
                 item = await db.items.find_one({"sku": sku})
                 if not item:
-                    errors.append(f"Baris {row['row']}: SKU '{sku}' tidak ditemukan")
+                    errors.append(f"Line {row['row']}: SKU '{sku}' not found")
                     continue
                 qty = _num(row.get("qty"))
                 if float(item.get("stock", 0)) < qty:
                     errors.append(
-                        f"Baris {row['row']}: stok {item['name']} tidak cukup ({item.get('stock', 0)} < {qty})"
+                        f"Line {row['row']}: insufficient stock for {item['name']} ({item.get('stock', 0)} < {qty})"
                     )
                     continue
                 cost_at_issue = float(item.get("cost", 0))
@@ -1448,7 +1448,7 @@ async def issues_bulk_upload(
             await db.issues.insert_one(doc)
             created += 1
         except Exception as e:
-            errors.append(f"Grup {ref}: {str(e)}")
+            errors.append(f"Group {ref}: {str(e)}")
     return {"created": created, "errors": errors, "total_rows": len(rows)}
 
 
@@ -1606,7 +1606,7 @@ async def report_po_by_supplier(
     end: Optional[str] = None,
     user: dict = Depends(get_current_user),
 ):
-    """Ringkasan Purchase Order per supplier: jumlah PO, nilai total, distribusi status."""
+    """Overview Purchase Order per supplier: jumlah PO, nilai total, distribusi status."""
     query: Dict[str, Any] = {}
     if start:
         query.setdefault("created_at", {})["$gte"] = start
@@ -1718,7 +1718,7 @@ async def report_stock_balance(
     category: Optional[str] = None,
     user: dict = Depends(get_current_user),
 ):
-    """Saldo stok saat ini per item, dengan valuasi (stock * HPP)."""
+    """Saldo stok saat ini per item, dengan valuasi (stock * COGS)."""
     query: Dict[str, Any] = {}
     if outlet and outlet != "all":
         query["outlet_code"] = outlet
@@ -2028,7 +2028,7 @@ async def seed_data():
     demo_users = [
         {"email": admin_email, "password": admin_password, "name": "Admin Lago Bali", "role": "admin"},
         {"email": "purchasing@lagobali.com", "password": "demo123", "name": "Rina (Purchasing)", "role": "purchasing"},
-        {"email": "warehouse@lagobali.com", "password": "demo123", "name": "Budi (Gudang)", "role": "warehouse"},
+        {"email": "warehouse@lagobali.com", "password": "demo123", "name": "Budi (Warehouse)", "role": "warehouse"},
         {"email": "finance@lagobali.com", "password": "demo123", "name": "Sari (Finance)", "role": "finance"},
     ]
     for u in demo_users:
@@ -2051,7 +2051,7 @@ async def seed_data():
 
     # Outlets
     outlets = [
-        {"name": "Gudang utama", "code": "main_wh", "type": "warehouse"},
+        {"name": "Main Warehouse", "code": "main_wh", "type": "warehouse"},
         {"name": "Kitchen", "code": "kitchen", "type": "kitchen"},
         {"name": "Bar", "code": "bar", "type": "bar"},
         {"name": "Housekeeping", "code": "housekeeping", "type": "housekeeping"},

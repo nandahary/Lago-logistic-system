@@ -47,7 +47,7 @@ export function BulkUploadDialog({
   const pickFile = (f) => {
     if (!f) return;
     if (!/\.(csv|txt)$/i.test(f.name)) {
-      toast.error("Format harus CSV");
+      toast.error("File must be CSV format");
       return;
     }
     setFile(f);
@@ -67,7 +67,7 @@ export function BulkUploadDialog({
   };
 
   const submit = async () => {
-    if (!file) return toast.error("Pilih file CSV terlebih dahulu");
+    if (!file) return toast.error("Please select a CSV file first");
     setUploading(true);
     try {
       const form = new FormData();
@@ -76,7 +76,7 @@ export function BulkUploadDialog({
         headers: { "Content-Type": "multipart/form-data" },
       });
       setResult(data);
-      toast.success("Upload berhasil diproses");
+      toast.success("Upload processed successfully");
       if (onSuccess) onSuccess(data);
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || err.message);
@@ -89,7 +89,7 @@ export function BulkUploadDialog({
     <Modal title={title} eyebrow="Upload CSV" onClose={onClose}>
       <div className="upload-body" data-testid={`${testid}-dialog`}>
         <div className="upload-instructions">
-          <p className="eyebrow">Format kolom yang dibutuhkan</p>
+          <p className="eyebrow">Required column format</p>
           <div className="upload-headers">
             {templateHeaders.map((h) => (
               <span key={h} className="chip small">
@@ -104,7 +104,7 @@ export function BulkUploadDialog({
             data-testid={`${testid}-template-download`}
             onClick={downloadTemplate}
           >
-            <Download size={14} /> Unduh template CSV
+            <Download size={14} /> Download CSV template
           </button>
         </div>
 
@@ -119,8 +119,8 @@ export function BulkUploadDialog({
           data-testid={`${testid}-dropzone`}
         >
           <Upload size={22} />
-          <strong>{file ? file.name : "Klik atau seret file CSV ke sini"}</strong>
-          <span>Format .csv, maksimal 5 MB</span>
+          <strong>{file ? file.name : "Click or drag a CSV file here"}</strong>
+          <span>.csv format, maximum 5 MB</span>
           <input
             ref={inputRef}
             type="file"
@@ -140,29 +140,29 @@ export function BulkUploadDialog({
                 setResult(null);
               }}
             >
-              <X size={12} /> Hapus
+              <X size={12} /> Delete
             </button>
           )}
         </div>
 
         {preview.length > 0 && (
           <div className="upload-preview" data-testid={`${testid}-preview`}>
-            <p className="eyebrow">Pratinjau 5 baris pertama</p>
+            <p className="eyebrow">Preview of first 5 rows</p>
             <pre>{preview.join("\n")}</pre>
           </div>
         )}
 
         {result && (
           <div className="upload-result" data-testid={`${testid}-result`}>
-            <p className="eyebrow">Hasil</p>
+            <p className="eyebrow">Result</p>
             <div className="result-summary">
               {"created" in result && (
                 <span className="chip green small">
-                  <Check size={12} /> {result.created} baru
+                  <Check size={12} /> {result.created} new
                 </span>
               )}
               {"updated" in result && result.updated > 0 && (
-                <span className="chip blue small">{result.updated} diperbarui</span>
+                <span className="chip blue small">{result.updated} updated</span>
               )}
               {result.errors?.length > 0 && (
                 <span className="chip amber small">{result.errors.length} error</span>
@@ -180,7 +180,7 @@ export function BulkUploadDialog({
 
         <div className="form-actions">
           <button type="button" className="secondary-button" onClick={onClose}>
-            Tutup
+            Close
           </button>
           <button
             type="button"
@@ -189,7 +189,7 @@ export function BulkUploadDialog({
             onClick={submit}
             data-testid={`${testid}-submit`}
           >
-            <FileText size={16} /> {uploading ? "Memproses..." : "Upload & Proses"}
+            <FileText size={16} /> {uploading ? "Processing..." : "Upload & Process"}
           </button>
         </div>
       </div>

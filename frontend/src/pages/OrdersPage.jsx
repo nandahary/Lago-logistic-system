@@ -12,7 +12,7 @@ import { printPurchaseOrder } from "../lib/printDocs";
 const TEMPLATE = {
   headers: ["po_ref", "supplier", "outlet_code", "item_sku", "qty", "price", "notes"],
   example: [
-    ["A1", "PT Boga Utama", "kitchen", "INV-0001", "20", "185000", "Restock mingguan"],
+    ["A1", "PT Boga Utama", "kitchen", "INV-0001", "20", "185000", "Weekly restock"],
     ["A1", "PT Boga Utama", "kitchen", "INV-0006", "10", "220000", ""],
     ["A2", "PT Pernod Ricard", "bar", "INV-0004", "12", "450000", ""],
   ],
@@ -71,9 +71,9 @@ export default function OrdersPage() {
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!supplier) return toast.error("Supplier wajib diisi");
+    if (!supplier) return toast.error("Supplier is required");
     const cleanLines = lines.filter((l) => l.item_id && Number(l.qty) > 0);
-    if (cleanLines.length === 0) return toast.error("Tambahkan minimal 1 item");
+    if (cleanLines.length === 0) return toast.error("Add at least 1 item");
     setSaving(true);
     try {
       const payload = {
@@ -92,7 +92,7 @@ export default function OrdersPage() {
         }),
       };
       await api.post("/orders", payload);
-      toast.success("PO berhasil dibuat");
+      toast.success("PO created successfully");
       setModal(null);
       load();
     } catch (err) {
@@ -105,7 +105,7 @@ export default function OrdersPage() {
   const approve = async (id) => {
     try {
       await api.post(`/orders/${id}/approve`);
-      toast.success("PO disetujui");
+      toast.success("PO approved");
       load();
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || err.message);
@@ -113,10 +113,10 @@ export default function OrdersPage() {
   };
 
   const cancel = async (id) => {
-    if (!window.confirm("Batalkan PO ini?")) return;
+    if (!window.confirm("Cancel this PO?")) return;
     try {
       await api.post(`/orders/${id}/cancel`);
-      toast.success("PO dibatalkan");
+      toast.success("PO cancelled");
       load();
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || err.message);
@@ -135,7 +135,7 @@ export default function OrdersPage() {
       <PageIntro
         eyebrow="Procurement · workflow"
         title="Purchase order"
-        subtitle="Pantau pengadaan dari permintaan sampai barang diterima."
+        subtitle="Track procurement from request to received."
         testid="orders-title"
         action={
           <div className="action-cluster">
@@ -154,31 +154,31 @@ export default function OrdersPage() {
                 className="primary-button"
                 onClick={openNew}
               >
-                <Plus size={17} /> Buat PO baru
+                <Plus size={17} /> Create new PO
               </button>
             )}
           </div>
         }
       />
       <section className="panel">
-        <PanelHead title="Daftar purchase order" detail={`${orders.length} PO tercatat`} />
+        <PanelHead title="Purchase order list" detail={`${orders.length} PO recorded`} />
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>No. PO</th>
+                <th>PO No.</th>
                 <th>Supplier</th>
                 <th>Outlet</th>
                 <th>Item</th>
                 <th>Total</th>
                 <th>Status</th>
-                <th>Dibuat</th>
-                <th>Aksi</th>
+                <th>Created</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {orders.length === 0 && (
-                <tr><td colSpan={8} style={{ textAlign: "center", padding: 40 }}>Belum ada PO.</td></tr>
+                <tr><td colSpan={8} style={{ textAlign: "center", padding: 40 }}>No PO yet.</td></tr>
               )}
               {orders.map((o) => {
                 const totalQty = o.items.reduce((s, l) => s + Number(l.qty), 0);
@@ -192,10 +192,10 @@ export default function OrdersPage() {
                     <td>{o.supplier}</td>
                     <td>{outletNames[o.outlet_code] || o.outlet_code}</td>
                     <td>
-                      {o.items.length} baris
+                      {o.items.length} lines
                       {o.status !== "waiting_approval" && o.status !== "cancelled" && (
                         <small>
-                          Diterima: {recvQty}/{totalQty} ({pct}%)
+                          Received: {recvQty}/{totalQty} ({pct}%)
                         </small>
                       )}
                     </td>
@@ -220,7 +220,7 @@ export default function OrdersPage() {
                           style={{ marginLeft: 6 }}
                           onClick={() => cancel(o.id)}
                         >
-                          <X size={12} /> Batal
+                          <X size={12} /> Cancel
                         </button>
                       )}
                       <button
@@ -228,9 +228,9 @@ export default function OrdersPage() {
                         className="small-button"
                         style={{ marginLeft: 6 }}
                         onClick={() => printPO(o)}
-                        title="Cetak PO"
+                        title="Print PO"
                       >
-                        <Printer size={12} /> Cetak
+                        <Printer size={12} /> Print
                       </button>
                     </td>
                   </tr>
@@ -242,7 +242,7 @@ export default function OrdersPage() {
       </section>
 
       {modal === "new" && (
-        <Modal title="Buat purchase order" onClose={() => setModal(null)}>
+        <Modal title="Create purchase order" onClose={() => setModal(null)}>
           <form className="form-grid" onSubmit={submit}>
             <label className="field">
               <span>Supplier</span>
@@ -251,7 +251,7 @@ export default function OrdersPage() {
                 value={supplierId}
                 onChange={(e) => onPickSupplier(e.target.value)}
               >
-                <option value="">-- Pilih dari katalog --</option>
+                <option value="">-- Pick from catalog --</option>
                 {suppliers.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name} ({s.code}) · lead {s.lead_time_days}d
@@ -259,20 +259,20 @@ export default function OrdersPage() {
                 ))}
               </select>
             </label>
-            <Field label="Atau nama supplier custom" testid="po-supplier-input" value={supplier} onChange={setSupplier} placeholder="PT Boga Utama" />
+            <Field label="Or custom supplier name" testid="po-supplier-input" value={supplier} onChange={setSupplier} placeholder="PT Boga Utama" />
             <SelectField
-              label="Outlet tujuan"
+              label="Destination outlet"
               testid="po-outlet-select"
               value={outletCode}
               onChange={setOutletCode}
               options={outletsList.map((o) => ({ value: o.code, label: o.name }))}
             />
             <label className="field" style={{ gridColumn: "1/-1" }}>
-              <span>Catatan (opsional)</span>
-              <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Restock mingguan..." />
+              <span>Notes (optional)</span>
+              <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Weekly restock..." />
             </label>
             <div style={{ gridColumn: "1/-1" }}>
-              <p className="eyebrow">Baris item</p>
+              <p className="eyebrow">Line items</p>
               <div className="line-editor">
                 {lines.map((l, idx) => (
                   <div className="line-row" key={idx}>
@@ -281,7 +281,7 @@ export default function OrdersPage() {
                       value={l.item_id}
                       onChange={(e) => updateLine(idx, "item_id", e.target.value)}
                     >
-                      <option value="">Pilih item...</option>
+                      <option value="">Pick item...</option>
                       {items.map((it) => (
                         <option key={it.id} value={it.id}>
                           {it.name} ({it.sku})
@@ -300,7 +300,7 @@ export default function OrdersPage() {
                       type="number"
                       value={l.price}
                       onChange={(e) => updateLine(idx, "price", e.target.value)}
-                      placeholder="Harga"
+                      placeholder="Price"
                     />
                     <button type="button" className="icon-button" onClick={() => removeLine(idx)}>
                       <Trash2 size={14} />
@@ -308,15 +308,15 @@ export default function OrdersPage() {
                   </div>
                 ))}
                 <button type="button" data-testid="po-add-line" className="chip small" onClick={addLine}>
-                  <Plus size={12} /> Tambah baris
+                  <Plus size={12} /> Add row
                 </button>
               </div>
               <div className="line-total">Total: <strong>{money(linesTotal)}</strong></div>
             </div>
             <div className="form-actions">
-              <button type="button" className="secondary-button" onClick={() => setModal(null)}>Batal</button>
+              <button type="button" className="secondary-button" onClick={() => setModal(null)}>Cancel</button>
               <button data-testid="po-save-button" className="primary-button" type="submit" disabled={saving}>
-                <Check size={16} /> {saving ? "Menyimpan..." : "Simpan PO"}
+                <Check size={16} /> {saving ? "Saving..." : "Save PO"}
               </button>
             </div>
           </form>
@@ -332,8 +332,8 @@ export default function OrdersPage() {
           templateExample={TEMPLATE.example}
           instructions={
             <>
-              Kelompokkan baris dengan kolom <b>po_ref</b> yang sama untuk membuat satu PO.
-              Kolom <b>item_sku</b> harus cocok dengan SKU master barang.
+              Group rows with the same <b>po_ref</b> value to create a single PO.
+              The <b>item_sku</b> column must match an SKU in the item master.
             </>
           }
           onClose={() => setModal(null)}

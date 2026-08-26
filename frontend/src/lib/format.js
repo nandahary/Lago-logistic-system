@@ -1,13 +1,13 @@
 export const money = (v) =>
-  new Intl.NumberFormat("id-ID", {
+  new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "IDR",
     maximumFractionDigits: 0,
   }).format(Number(v || 0));
 
 export const outletNames = {
-  all: "Semua outlet",
-  main_wh: "Gudang utama",
+  all: "All outlets",
+  main_wh: "Main warehouse",
   kitchen: "Kitchen",
   bar: "Bar",
   housekeeping: "Housekeeping",
@@ -25,16 +25,16 @@ export const outletNames = {
 export const roleLabels = {
   admin: "Admin",
   purchasing: "Purchasing",
-  warehouse: "Gudang",
+  warehouse: "Warehouse",
   finance: "Finance",
 };
 
 export const statusLabels = {
-  waiting_approval: "Menunggu approval",
-  approved: "Disetujui · siap terima",
-  partial: "Diterima sebagian",
-  received: "Ditutup (received penuh)",
-  cancelled: "Dibatalkan",
+  waiting_approval: "Awaiting approval",
+  approved: "Approved · ready to receive",
+  partial: "Partially received",
+  received: "Closed (fully received)",
+  cancelled: "Cancelled",
   draft: "Draft",
 };
 
@@ -50,7 +50,7 @@ export const statusTone = {
 export const formatDate = (iso) => {
   if (!iso) return "-";
   try {
-    return new Date(iso).toLocaleString("id-ID", {
+    return new Date(iso).toLocaleString("en-US", {
       day: "2-digit",
       month: "short",
       year: "numeric",

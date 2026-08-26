@@ -44,11 +44,11 @@ export default function OpnamePage() {
         physical_qty: physical[i.id] !== undefined && physical[i.id] !== "" ? Number(physical[i.id]) : i.stock,
       }))
       .filter((l) => l.physical_qty !== null);
-    if (lines.length === 0) return toast.error("Tidak ada item untuk outlet ini");
+    if (lines.length === 0) return toast.error("No items to opname for this outlet");
     setSaving(true);
     try {
       await api.post("/opnames", { outlet_code: outletCode, notes, items: lines });
-      toast.success("Opname tersimpan (status draft)");
+      toast.success("Stock take saved (draft)");
       setModal(null);
       load();
     } catch (err) {
@@ -59,10 +59,10 @@ export default function OpnamePage() {
   };
 
   const approve = async (id) => {
-    if (!window.confirm("Setujui opname ini? Stok akan disesuaikan ke jumlah fisik.")) return;
+    if (!window.confirm("Approve this stock take? Stock will be adjusted to physical quantities.")) return;
     try {
       await api.post(`/opnames/${id}/approve`);
-      toast.success("Opname disetujui & stok disesuaikan");
+      toast.success("Stock take approved & stock adjusted");
       load();
       api.get("/items").then((r) => setItems(r.data));
     } catch (err) {
@@ -75,36 +75,36 @@ export default function OpnamePage() {
   return (
     <>
       <PageIntro
-        eyebrow="Operasional · rekonsiliasi"
-        title="Stock opname"
-        subtitle="Bandingkan stok fisik dengan sistem dan selesaikan selisih."
+        eyebrow="Operations · reconciliation"
+        title="Stock take"
+        subtitle="Reconcile physical stock against the system and settle variances."
         testid="opname-title"
         action={
           canCreate && (
             <button data-testid="opname-primary-action" className="primary-button" onClick={openNew}>
-              <Plus size={17} /> Mulai opname
+              <Plus size={17} /> Start stock take
             </button>
           )
         }
       />
       <section className="panel">
-        <PanelHead title="Riwayat opname" detail={`${list.length} sesi opname`} />
+        <PanelHead title="Stock take history" detail={`${list.length} sessions`} />
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>No.</th>
                 <th>Outlet</th>
-                <th>Baris</th>
-                <th>Selisih nilai</th>
+                <th>Lines</th>
+                <th>Variance value</th>
                 <th>Status</th>
-                <th>Tanggal</th>
-                <th>Aksi</th>
+                <th>Date</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {list.length === 0 && (
-                <tr><td colSpan={7} style={{ textAlign: "center", padding: 40 }}>Belum ada opname.</td></tr>
+                <tr><td colSpan={7} style={{ textAlign: "center", padding: 40 }}>No stock takes yet.</td></tr>
               )}
               {list.map((o) => (
                 <tr key={o.id} data-testid={`opname-row-${o.id}`}>
@@ -114,7 +114,7 @@ export default function OpnamePage() {
                   <td className={o.total_variance_value < 0 ? "danger-text" : ""}>
                     <strong>{money(o.total_variance_value)}</strong>
                   </td>
-                  <td><Badge tone={o.status === "approved" ? "green" : "amber"}>{o.status === "approved" ? "Disetujui" : "Draft"}</Badge></td>
+                  <td><Badge tone={o.status === "approved" ? "green" : "amber"}>{o.status === "approved" ? "Approved" : "Draft"}</Badge></td>
                   <td><small>{formatDate(o.created_at)}</small></td>
                   <td>
                     {o.status === "draft" && canApprove && (
@@ -135,7 +135,7 @@ export default function OpnamePage() {
       </section>
 
       {modal === "new" && (
-        <Modal title="Stock opname" onClose={() => setModal(null)}>
+        <Modal title="Stock take" onClose={() => setModal(null)}>
           <form onSubmit={submit}>
             <div className="form-grid">
               <SelectField
@@ -145,22 +145,22 @@ export default function OpnamePage() {
                 onChange={setOutletCode}
                 options={[
                   ...outletsList.map((o) => ({ value: o.code, label: o.name })),
-                  { value: "all", label: "Semua outlet" },
+                  { value: "all", label: "All outlets" },
                 ]}
               />
               <label className="field">
-                <span>Catatan</span>
-                <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opname bulanan..." />
+                <span>Notes</span>
+                <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Monthly stock take..." />
               </label>
             </div>
             <div className="opname-list" data-testid="opname-item-list">
               <div className="opname-head">
                 <span>Item</span>
-                <span>Sistem</span>
-                <span>Fisik</span>
-                <span>Selisih</span>
+                <span>System</span>
+                <span>Physical</span>
+                <span>Variance</span>
               </div>
-              {scoped.length === 0 && <p className="empty-hint">Tidak ada item untuk outlet ini.</p>}
+              {scoped.length === 0 && <p className="empty-hint">No items for this outlet.</p>}
               {scoped.map((i) => {
                 const phys = physical[i.id] === undefined || physical[i.id] === "" ? i.stock : Number(physical[i.id]);
                 const variance = phys - i.stock;
@@ -187,9 +187,9 @@ export default function OpnamePage() {
               })}
             </div>
             <div className="form-actions">
-              <button type="button" className="secondary-button" onClick={() => setModal(null)}>Batal</button>
+              <button type="button" className="secondary-button" onClick={() => setModal(null)}>Cancel</button>
               <button data-testid="opname-save-button" className="primary-button" type="submit" disabled={saving}>
-                <Check size={16} /> {saving ? "Menyimpan..." : "Simpan opname"}
+                <Check size={16} /> {saving ? "Saving..." : "Save stock take"}
               </button>
             </div>
           </form>
