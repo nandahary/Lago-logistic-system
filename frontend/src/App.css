@@ -214,6 +214,25 @@ td small{display:block;color:#9aa6a0;font-size:10px;margin-top:4px}
 .info-label{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);font-weight:700;display:flex;gap:5px;align-items:center}
 .info-card strong{font-size:13px;color:var(--ink);font-weight:600;word-break:break-word}
 
+/* ============ Reports ============ */
+.tabs{display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid var(--line);margin-bottom:18px}
+.tab{background:transparent;border:0;padding:11px 14px;font:600 12px 'DM Sans';color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:7px;border-bottom:2px solid transparent;transition:color .18s,border-color .18s}
+.tab:hover{color:var(--ink)}
+.tab.active{color:var(--teal);border-color:var(--teal)}
+.report-body{display:block}
+.report-bar{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;background:#fff;border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:14px}
+.report-bar .field.small{min-width:130px;max-width:180px}
+.report-bar .field.small input,.report-bar .field.small select{padding:8px 10px;font-size:12px}
+.report-summary{display:flex;gap:10px;margin-left:auto;flex-wrap:wrap}
+.summary-tile{display:flex;flex-direction:column;gap:2px;background:#fafcfa;border:1px solid var(--line);border-radius:6px;padding:8px 12px;min-width:110px}
+.summary-tile span{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:600}
+.summary-tile strong{font-size:14px;color:var(--ink)}
+.summary-tile strong.teal{color:var(--teal)}
+.summary-tile strong.amber{color:var(--amber)}
+.summary-tile strong.green{color:var(--green)}
+.summary-tile strong.blue{color:var(--blue)}
+.badge-cluster{display:flex;flex-wrap:wrap;gap:4px}
+
 /* ============ Login page ============ */
 .login-shell{display:grid;grid-template-columns:1.05fr 1fr;min-height:100vh;background:linear-gradient(135deg,#1d2926 0%,#264039 100%)}
 .login-left{padding:60px;color:#dce7e1;display:flex;flex-direction:column;justify-content:space-between}

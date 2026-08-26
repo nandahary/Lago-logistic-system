@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { roleLabels } from "../lib/format";
 import {
   Bell, Menu, LogOut, X, LayoutDashboard, Box, ShoppingCart, Truck, ChevronRight,
-  ClipboardCheck, Calculator, Flame, Coins, Users, UserCog,
+  ClipboardCheck, Calculator, Flame, Coins, Users, UserCog, FileBarChart,
 } from "lucide-react";
 
 const BASE_NAV = [
@@ -18,6 +18,7 @@ const BASE_NAV = [
   ["/hpp", "HPP & resep", Calculator],
   ["/revenue", "Revenue harian", Coins],
   ["/flash", "Flash cost", Flame],
+  ["/reports", "Laporan", FileBarChart],
 ];
 
 const ADMIN_NAV = [["/users", "Manajemen user", UserCog]];

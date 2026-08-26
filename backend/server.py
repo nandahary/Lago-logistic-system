@@ -1586,6 +1586,439 @@ async def analytics(days: int = 7, user: dict = Depends(get_current_user)):
 
 
 # ==============================================================================
+# Reports
+# ==============================================================================
+def _in_window(iso_str: Optional[str], start: Optional[str], end: Optional[str]) -> bool:
+    """Check if ISO date string falls between start/end (YYYY-MM-DD inclusive)."""
+    if not iso_str:
+        return False
+    d = iso_str[:10]
+    if start and d < start:
+        return False
+    if end and d > end:
+        return False
+    return True
+
+
+@api.get("/reports/po-by-supplier")
+async def report_po_by_supplier(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Ringkasan Purchase Order per supplier: jumlah PO, nilai total, distribusi status."""
+    query: Dict[str, Any] = {}
+    if start:
+        query.setdefault("created_at", {})["$gte"] = start
+    if end:
+        query.setdefault("created_at", {})["$lte"] = end + "T23:59:59"
+    orders = await db.purchase_orders.find(query).to_list(2000)
+    by_sup: Dict[str, Dict[str, Any]] = {}
+    for o in orders:
+        key = o.get("supplier", "-")
+        b = by_sup.setdefault(
+            key,
+            {
+                "supplier": key,
+                "po_count": 0,
+                "po_total": 0,
+                "received_total": 0,
+                "waiting": 0,
+                "approved": 0,
+                "partial": 0,
+                "received": 0,
+                "cancelled": 0,
+                "outstanding_value": 0,
+            },
+        )
+        b["po_count"] += 1
+        b["po_total"] += float(o.get("total", 0))
+        b[o.get("status", "waiting_approval").replace("waiting_approval", "waiting")] = (
+            b.get(o.get("status", "waiting_approval").replace("waiting_approval", "waiting"), 0) + 1
+        )
+        for line in o.get("items", []):
+            qty = float(line.get("qty", 0))
+            recv = float(line.get("received_qty", 0))
+            price = float(line.get("price", 0))
+            b["received_total"] += recv * price
+            if o.get("status") in ("approved", "partial"):
+                b["outstanding_value"] += (qty - recv) * price
+    rows = sorted(by_sup.values(), key=lambda r: r["po_total"], reverse=True)
+    return {
+        "period": {"start": start, "end": end},
+        "rows": rows,
+        "totals": {
+            "supplier_count": len(rows),
+            "po_count": sum(r["po_count"] for r in rows),
+            "po_total": sum(r["po_total"] for r in rows),
+            "outstanding_value": sum(r["outstanding_value"] for r in rows),
+        },
+    }
+
+
+@api.get("/reports/po-outstanding")
+async def report_po_outstanding(user: dict = Depends(get_current_user)):
+    """PO yang belum tuntas — status approved/partial dengan sisa qty & nilai."""
+    orders = (
+        await db.purchase_orders.find({"status": {"$in": ["approved", "partial"]}})
+        .sort("created_at", 1)
+        .to_list(1000)
+    )
+    rows = []
+    total_outstanding = 0.0
+    for o in orders:
+        lines = []
+        po_outstanding = 0.0
+        for line in o.get("items", []):
+            qty = float(line.get("qty", 0))
+            recv = float(line.get("received_qty", 0))
+            remaining = max(qty - recv, 0)
+            price = float(line.get("price", 0))
+            value = remaining * price
+            po_outstanding += value
+            if remaining > 0:
+                lines.append(
+                    {
+                        "name": line.get("name"),
+                        "unit": line.get("unit", ""),
+                        "qty_ordered": qty,
+                        "qty_received": recv,
+                        "qty_remaining": remaining,
+                        "price": price,
+                        "value_remaining": value,
+                    }
+                )
+        if not lines:
+            continue
+        # Days elapsed since created
+        try:
+            days = max(0, (now_utc() - datetime.fromisoformat(o["created_at"].replace("Z", "+00:00"))).days)
+        except Exception:
+            days = None
+        total_outstanding += po_outstanding
+        rows.append(
+            {
+                "id": str(o["_id"]),
+                "po_number": o.get("po_number"),
+                "supplier": o.get("supplier"),
+                "outlet_code": o.get("outlet_code"),
+                "status": o.get("status"),
+                "created_at": o.get("created_at"),
+                "days_open": days,
+                "outstanding_value": po_outstanding,
+                "lines": lines,
+            }
+        )
+    return {"rows": rows, "totals": {"po_count": len(rows), "outstanding_value": total_outstanding}}
+
+
+@api.get("/reports/stock-balance")
+async def report_stock_balance(
+    outlet: Optional[str] = None,
+    category: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Saldo stok saat ini per item, dengan valuasi (stock * HPP)."""
+    query: Dict[str, Any] = {}
+    if outlet and outlet != "all":
+        query["outlet_code"] = outlet
+    if category:
+        query["category"] = category
+    items = await db.items.find(query).sort("name", 1).to_list(2000)
+    rows = []
+    total_value = 0.0
+    for i in items:
+        stock = float(i.get("stock", 0))
+        cost = float(i.get("cost", 0))
+        value = stock * cost
+        total_value += value
+        rows.append(
+            {
+                "sku": i.get("sku"),
+                "name": i.get("name"),
+                "category": i.get("category"),
+                "outlet_code": i.get("outlet_code"),
+                "unit": i.get("unit"),
+                "stock": stock,
+                "min_stock": float(i.get("min_stock", 0)),
+                "cost": cost,
+                "value": value,
+                "low": stock <= float(i.get("min_stock", 0)),
+            }
+        )
+    return {
+        "rows": rows,
+        "totals": {
+            "item_count": len(rows),
+            "total_value": total_value,
+            "low_stock_count": sum(1 for r in rows if r["low"]),
+        },
+    }
+
+
+@api.get("/reports/stock-movement")
+async def report_stock_movement(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    item_sku: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Kartu stok: gerakan masuk (GRN) & keluar (issue) & adjustment (opname)."""
+    # Fetch relevant docs — filter by date/sku
+    grns = await db.receivings.find({}).sort("received_at", 1).to_list(5000)
+    issues = await db.issues.find({}).sort("issued_at", 1).to_list(5000)
+    opnames = await db.opnames.find({"status": "approved"}).to_list(5000)
+
+    movements = []
+    for g in grns:
+        if not _in_window(g.get("received_at"), start, end):
+            continue
+        for line in g.get("items", []):
+            if item_sku:
+                # Need to resolve item sku
+                item = await db.items.find_one({"_id": to_oid(line["item_id"])})
+                if not item or item.get("sku") != item_sku:
+                    continue
+            movements.append(
+                {
+                    "date": g.get("received_at"),
+                    "ref": g.get("grn_number"),
+                    "type": "IN (GRN)",
+                    "item_id": line["item_id"],
+                    "name": line["name"],
+                    "unit": line.get("unit"),
+                    "qty_in": float(line.get("qty", 0)),
+                    "qty_out": 0,
+                    "value": float(line.get("qty", 0)) * float(line.get("price", 0)),
+                    "supplier": g.get("supplier"),
+                }
+            )
+    for iss in issues:
+        if not _in_window(iss.get("issued_at"), start, end):
+            continue
+        for line in iss.get("items", []):
+            if item_sku:
+                item = await db.items.find_one({"_id": to_oid(line["item_id"])})
+                if not item or item.get("sku") != item_sku:
+                    continue
+            movements.append(
+                {
+                    "date": iss.get("issued_at"),
+                    "ref": iss.get("issue_number"),
+                    "type": "OUT (Issue)",
+                    "item_id": line["item_id"],
+                    "name": line["name"],
+                    "unit": line.get("unit"),
+                    "qty_in": 0,
+                    "qty_out": float(line.get("qty", 0)),
+                    "value": float(line.get("line_total", 0)),
+                    "to_outlet": iss.get("to_outlet"),
+                }
+            )
+    for op in opnames:
+        if not _in_window(op.get("created_at"), start, end):
+            continue
+        for line in op.get("items", []):
+            variance = float(line.get("variance", 0))
+            if variance == 0:
+                continue
+            if item_sku:
+                item = await db.items.find_one({"_id": to_oid(line["item_id"])})
+                if not item or item.get("sku") != item_sku:
+                    continue
+            movements.append(
+                {
+                    "date": op.get("created_at"),
+                    "ref": op.get("opname_number"),
+                    "type": "ADJ (Opname)",
+                    "item_id": line["item_id"],
+                    "name": line["name"],
+                    "unit": line.get("unit"),
+                    "qty_in": variance if variance > 0 else 0,
+                    "qty_out": -variance if variance < 0 else 0,
+                    "value": float(line.get("variance_value", 0)),
+                }
+            )
+    movements.sort(key=lambda m: m["date"] or "")
+    total_in = sum(m["qty_in"] for m in movements)
+    total_out = sum(m["qty_out"] for m in movements)
+    total_value_in = sum(m["value"] for m in movements if m["qty_in"] > 0)
+    total_value_out = sum(m["value"] for m in movements if m["qty_out"] > 0)
+    return {
+        "period": {"start": start, "end": end},
+        "rows": movements,
+        "totals": {
+            "count": len(movements),
+            "total_qty_in": total_in,
+            "total_qty_out": total_out,
+            "total_value_in": total_value_in,
+            "total_value_out": total_value_out,
+        },
+    }
+
+
+@api.get("/reports/financial/flash-cost")
+async def report_flash_cost_financial(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Financial flash-cost per outlet & agregat harian dalam rentang tanggal."""
+    today_dt = now_utc().date()
+    start_d = start or (today_dt - timedelta(days=6)).isoformat()
+    end_d = end or today_dt.isoformat()
+    # Generate day list
+    sd = datetime.fromisoformat(start_d).date()
+    ed = datetime.fromisoformat(end_d).date()
+    days = []
+    while sd <= ed:
+        days.append(sd.isoformat())
+        sd += timedelta(days=1)
+
+    outlets = await db.outlets.find({}).to_list(50)
+    outlet_map = {o["code"]: o["name"] for o in outlets}
+
+    # Aggregate issues by (outlet, date)
+    issue_agg = await db.issues.aggregate(
+        [
+            {"$match": {"issue_date": {"$gte": start_d, "$lte": end_d}}},
+            {
+                "$group": {
+                    "_id": {"outlet": "$to_outlet", "date": "$issue_date"},
+                    "cost": {"$sum": "$total_cost"},
+                }
+            },
+        ]
+    ).to_list(2000)
+    cost_map = {(r["_id"]["outlet"], r["_id"]["date"]): r["cost"] for r in issue_agg}
+
+    rev_agg = await db.revenues.aggregate(
+        [
+            {"$match": {"date": {"$gte": start_d, "$lte": end_d}}},
+            {
+                "$group": {
+                    "_id": {"outlet": "$outlet_code", "date": "$date"},
+                    "amount": {"$sum": "$amount"},
+                }
+            },
+        ]
+    ).to_list(2000)
+    rev_map = {(r["_id"]["outlet"], r["_id"]["date"]): r["amount"] for r in rev_agg}
+
+    outlet_summary: Dict[str, Dict[str, Any]] = {}
+    daily_totals = []
+    for d in days:
+        day_cost = 0
+        day_rev = 0
+        for o in outlets:
+            code = o["code"]
+            c = float(cost_map.get((code, d), 0))
+            r = float(rev_map.get((code, d), 0))
+            day_cost += c
+            day_rev += r
+            os = outlet_summary.setdefault(
+                code,
+                {"outlet_code": code, "outlet_name": o["name"], "cost": 0, "revenue": 0},
+            )
+            os["cost"] += c
+            os["revenue"] += r
+        daily_totals.append(
+            {
+                "date": d,
+                "cost": day_cost,
+                "revenue": day_rev,
+                "percentage": round((day_cost / day_rev * 100), 2) if day_rev > 0 else 0,
+            }
+        )
+    outlet_rows = []
+    for code, data in outlet_summary.items():
+        pct = round((data["cost"] / data["revenue"] * 100), 2) if data["revenue"] > 0 else 0
+        outlet_rows.append({**data, "percentage": pct})
+    outlet_rows.sort(key=lambda r: r["cost"], reverse=True)
+
+    total_cost = sum(r["cost"] for r in outlet_rows)
+    total_rev = sum(r["revenue"] for r in outlet_rows)
+    return {
+        "period": {"start": start_d, "end": end_d},
+        "daily": daily_totals,
+        "by_outlet": outlet_rows,
+        "totals": {
+            "total_cost": total_cost,
+            "total_revenue": total_rev,
+            "percentage": round((total_cost / total_rev * 100), 2) if total_rev > 0 else 0,
+        },
+    }
+
+
+@api.get("/reports/low-stock")
+async def report_low_stock(user: dict = Depends(get_current_user)):
+    """Item dengan stok di atau di bawah min stock."""
+    items = await db.items.find({}).to_list(2000)
+    rows = []
+    for i in items:
+        stock = float(i.get("stock", 0))
+        mn = float(i.get("min_stock", 0))
+        if stock <= mn:
+            need = max(mn - stock, 0)
+            rows.append(
+                {
+                    "sku": i.get("sku"),
+                    "name": i.get("name"),
+                    "category": i.get("category"),
+                    "outlet_code": i.get("outlet_code"),
+                    "unit": i.get("unit"),
+                    "stock": stock,
+                    "min_stock": mn,
+                    "need_to_order": need,
+                    "cost": float(i.get("cost", 0)),
+                    "supplier": i.get("supplier"),
+                }
+            )
+    rows.sort(key=lambda r: r["stock"] - r["min_stock"])
+    return {"rows": rows, "totals": {"count": len(rows)}}
+
+
+@api.get("/reports/top-consumed")
+async def report_top_consumed(
+    days: int = 30, limit: int = 20, user: dict = Depends(get_current_user)
+):
+    """Item dengan konsumsi tertinggi (issue) selama N hari terakhir."""
+    days = max(1, min(days, 365))
+    since = (now_utc() - timedelta(days=days)).strftime("%Y-%m-%d")
+    pipeline = [
+        {"$match": {"issue_date": {"$gte": since}}},
+        {"$unwind": "$items"},
+        {
+            "$group": {
+                "_id": {"item_id": "$items.item_id", "name": "$items.name", "unit": "$items.unit"},
+                "qty": {"$sum": "$items.qty"},
+                "value": {"$sum": "$items.line_total"},
+                "transactions": {"$sum": 1},
+            }
+        },
+        {"$sort": {"value": -1}},
+        {"$limit": limit},
+    ]
+    docs = await db.issues.aggregate(pipeline).to_list(limit)
+    rows = [
+        {
+            "item_id": r["_id"]["item_id"],
+            "name": r["_id"]["name"],
+            "unit": r["_id"].get("unit", ""),
+            "qty": r["qty"],
+            "value": r["value"],
+            "transactions": r["transactions"],
+        }
+        for r in docs
+    ]
+    return {
+        "period": {"days": days, "since": since},
+        "rows": rows,
+        "totals": {"item_count": len(rows), "total_value": sum(r["value"] for r in rows)},
+    }
+
+
+# ==============================================================================
 # Seeding
 # ==============================================================================
 async def seed_data():

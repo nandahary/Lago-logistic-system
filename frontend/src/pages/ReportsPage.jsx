@@ -1,0 +1,498 @@
+import React, { useEffect, useState, useMemo } from "react";
+import { toast } from "sonner";
+import { Download, FileBarChart2, Package, TrendingUp, Wallet, ClipboardList, AlertTriangle } from "lucide-react";
+import { api, formatApiErrorDetail } from "../lib/api";
+import { money, outletNames, statusLabels, statusTone, formatDate, today } from "../lib/format";
+import { useOutlets } from "../lib/useOutlets";
+import { PageIntro, PanelHead, Badge } from "../components/UI";
+
+const compactMoney = (v) => {
+  const n = Number(v || 0);
+  if (n >= 1_000_000_000) return `Rp${(n / 1_000_000_000).toFixed(1)}M`;
+  if (n >= 1_000_000) return `Rp${(n / 1_000_000).toFixed(1)}Jt`;
+  if (n >= 1_000) return `Rp${(n / 1_000).toFixed(0)}K`;
+  return `Rp${n}`;
+};
+
+const TABS = [
+  { id: "po-by-supplier", label: "PO per Supplier", icon: TrendingUp },
+  { id: "po-outstanding", label: "PO Outstanding", icon: ClipboardList },
+  { id: "stock-balance", label: "Stock Balance", icon: Package },
+  { id: "stock-movement", label: "Stock Movement", icon: FileBarChart2 },
+  { id: "flash-cost", label: "Flash Cost (Financial)", icon: Wallet },
+  { id: "low-stock", label: "Low Stock", icon: AlertTriangle },
+  { id: "top-consumed", label: "Top Consumed", icon: TrendingUp },
+];
+
+function exportCSV(filename, headers, rows) {
+  const esc = (v) => {
+    if (v == null) return "";
+    const s = String(v).replace(/"/g, '""');
+    return /[",\n]/.test(s) ? `"${s}"` : s;
+  };
+  const csv = [headers.join(","), ...rows.map((r) => r.map(esc).join(","))].join("\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export default function ReportsPage() {
+  const [tab, setTab] = useState("po-by-supplier");
+  return (
+    <>
+      <PageIntro
+        eyebrow="Analytics · reports"
+        title="Laporan operasional"
+        subtitle="Analisa purchasing, stok, dan cost dari satu tempat. Semua tabel bisa diunduh CSV."
+        testid="reports-title"
+      />
+      <div className="tabs" data-testid="reports-tabs">
+        {TABS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            data-testid={`report-tab-${id}`}
+            className={`tab ${tab === id ? "active" : ""}`}
+            onClick={() => setTab(id)}
+          >
+            <Icon size={14} /> {label}
+          </button>
+        ))}
+      </div>
+      <div className="report-body">
+        {tab === "po-by-supplier" && <POBySupplier />}
+        {tab === "po-outstanding" && <POOutstanding />}
+        {tab === "stock-balance" && <StockBalance />}
+        {tab === "stock-movement" && <StockMovement />}
+        {tab === "flash-cost" && <FlashCostFinancial />}
+        {tab === "low-stock" && <LowStock />}
+        {tab === "top-consumed" && <TopConsumed />}
+      </div>
+    </>
+  );
+}
+
+// ============ 1. PO per Supplier ============
+function POBySupplier() {
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  const [data, setData] = useState(null);
+  const load = () =>
+    api.get("/reports/po-by-supplier", { params: { start, end } })
+      .then((r) => setData(r.data))
+      .catch((e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)));
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [start, end]);
+  const download = () => {
+    exportCSV(
+      `po-by-supplier-${today()}.csv`,
+      ["Supplier", "Total PO", "Nilai PO", "Nilai Diterima", "Outstanding", "Waiting", "Approved", "Partial", "Received", "Cancelled"],
+      data.rows.map((r) => [r.supplier, r.po_count, r.po_total, r.received_total, r.outstanding_value, r.waiting || 0, r.approved || 0, r.partial || 0, r.received || 0, r.cancelled || 0])
+    );
+  };
+  if (!data) return <div className="loading-state">Memuat...</div>;
+  return (
+    <>
+      <ReportBar>
+        <DateRange start={start} end={end} onStart={setStart} onEnd={setEnd} />
+        <Summary items={[
+          { label: "Supplier", value: data.totals.supplier_count },
+          { label: "Jumlah PO", value: data.totals.po_count },
+          { label: "Nilai PO", value: money(data.totals.po_total) },
+          { label: "Outstanding", value: money(data.totals.outstanding_value), tone: "amber" },
+        ]} />
+        <ExportBtn onClick={download} disabled={data.rows.length === 0} />
+      </ReportBar>
+      <ReportTable
+        headers={["Supplier", "PO", "Nilai PO", "Nilai diterima", "Outstanding", "Status distribusi"]}
+        rows={data.rows.map((r) => [
+          <strong>{r.supplier}</strong>,
+          r.po_count,
+          money(r.po_total),
+          money(r.received_total),
+          <span className={r.outstanding_value > 0 ? "danger-text" : ""}>{money(r.outstanding_value)}</span>,
+          <div className="badge-cluster">
+            {r.waiting > 0 && <Badge tone="amber">{r.waiting} waiting</Badge>}
+            {r.approved > 0 && <Badge tone="blue">{r.approved} approved</Badge>}
+            {r.partial > 0 && <Badge tone="amber">{r.partial} partial</Badge>}
+            {r.received > 0 && <Badge tone="green">{r.received} received</Badge>}
+            {r.cancelled > 0 && <Badge tone="neutral">{r.cancelled} cancel</Badge>}
+          </div>,
+        ])}
+      />
+    </>
+  );
+}
+
+// ============ 2. PO Outstanding ============
+function POOutstanding() {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    api.get("/reports/po-outstanding").then((r) => setData(r.data));
+  }, []);
+  const download = () => {
+    const rows = [];
+    data.rows.forEach((p) => {
+      p.lines.forEach((l) =>
+        rows.push([p.po_number, p.supplier, outletNames[p.outlet_code] || p.outlet_code, statusLabels[p.status] || p.status, p.days_open, l.name, l.qty_ordered, l.qty_received, l.qty_remaining, l.unit, l.price, l.value_remaining])
+      );
+    });
+    exportCSV(
+      `po-outstanding-${today()}.csv`,
+      ["No PO", "Supplier", "Outlet", "Status", "Hari terbuka", "Item", "Qty PO", "Qty diterima", "Qty sisa", "Unit", "Harga", "Nilai sisa"],
+      rows
+    );
+  };
+  if (!data) return <div className="loading-state">Memuat...</div>;
+  return (
+    <>
+      <ReportBar>
+        <Summary items={[
+          { label: "PO belum tuntas", value: data.totals.po_count },
+          { label: "Nilai outstanding", value: money(data.totals.outstanding_value), tone: "amber" },
+        ]} />
+        <ExportBtn onClick={download} disabled={data.rows.length === 0} />
+      </ReportBar>
+      {data.rows.length === 0 ? (
+        <div className="empty-hint" style={{ padding: 40 }}>Tidak ada PO outstanding — semua sudah tuntas atau belum ada PO.</div>
+      ) : (
+        data.rows.map((p) => (
+          <section className="panel" style={{ marginBottom: 14 }} key={p.id}>
+            <div className="panel-head">
+              <div>
+                <h2>{p.po_number} · {p.supplier}</h2>
+                <p>
+                  {outletNames[p.outlet_code] || p.outlet_code} ·
+                  <Badge tone={statusTone[p.status]} style={{ marginLeft: 6 }}>{statusLabels[p.status] || p.status}</Badge> ·
+                  {p.days_open != null && ` ${p.days_open} hari terbuka`} · Outstanding <strong>{money(p.outstanding_value)}</strong>
+                </p>
+              </div>
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>Item</th><th>Qty PO</th><th>Diterima</th><th>Sisa</th><th>Nilai sisa</th></tr>
+                </thead>
+                <tbody>
+                  {p.lines.map((l, i) => (
+                    <tr key={i}>
+                      <td><strong>{l.name}</strong> <small>{l.unit}</small></td>
+                      <td>{l.qty_ordered}</td>
+                      <td>{l.qty_received}</td>
+                      <td className="danger-text"><strong>{l.qty_remaining}</strong></td>
+                      <td><strong>{money(l.value_remaining)}</strong></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ))
+      )}
+    </>
+  );
+}
+
+// ============ 3. Stock Balance ============
+function StockBalance() {
+  const outletsList = useOutlets();
+  const [outlet, setOutlet] = useState("all");
+  const [category, setCategory] = useState("");
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    api.get("/reports/stock-balance", { params: { outlet, category: category || undefined } })
+      .then((r) => setData(r.data));
+  }, [outlet, category]);
+  const download = () => {
+    exportCSV(
+      `stock-balance-${today()}.csv`,
+      ["SKU", "Nama", "Kategori", "Outlet", "Unit", "Stok", "Min stok", "HPP", "Valuasi", "Low"],
+      data.rows.map((r) => [r.sku, r.name, r.category, r.outlet_code, r.unit, r.stock, r.min_stock, r.cost, r.value, r.low ? "YES" : ""])
+    );
+  };
+  if (!data) return <div className="loading-state">Memuat...</div>;
+  return (
+    <>
+      <ReportBar>
+        <label className="field small"><span>Outlet</span>
+          <select data-testid="stock-balance-outlet" value={outlet} onChange={(e) => setOutlet(e.target.value)}>
+            <option value="all">Semua outlet</option>
+            {outletsList.map((o) => <option key={o.code} value={o.code}>{o.name}</option>)}
+          </select>
+        </label>
+        <label className="field small"><span>Kategori</span>
+          <input data-testid="stock-balance-category" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Semua" />
+        </label>
+        <Summary items={[
+          { label: "Item", value: data.totals.item_count },
+          { label: "Valuasi total", value: money(data.totals.total_value), tone: "teal" },
+          { label: "Low stock", value: data.totals.low_stock_count, tone: "amber" },
+        ]} />
+        <ExportBtn onClick={download} disabled={data.rows.length === 0} />
+      </ReportBar>
+      <ReportTable
+        headers={["SKU", "Nama", "Kategori", "Outlet", "Stok", "Min", "HPP", "Valuasi"]}
+        rows={data.rows.map((r) => [
+          <Badge tone="neutral">{r.sku}</Badge>,
+          <strong>{r.name}</strong>,
+          r.category,
+          outletNames[r.outlet_code] || r.outlet_code,
+          <span className={r.low ? "danger-text" : ""}><strong>{r.stock} {r.unit}</strong></span>,
+          `${r.min_stock} ${r.unit}`,
+          money(r.cost),
+          <strong>{money(r.value)}</strong>,
+        ])}
+      />
+    </>
+  );
+}
+
+// ============ 4. Stock Movement ============
+function StockMovement() {
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  const [sku, setSku] = useState("");
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    api.get("/reports/stock-movement", { params: { start: start || undefined, end: end || undefined, item_sku: sku || undefined } })
+      .then((r) => setData(r.data));
+  }, [start, end, sku]);
+  const download = () => {
+    exportCSV(
+      `stock-movement-${today()}.csv`,
+      ["Tanggal", "Ref", "Tipe", "Item", "Unit", "Masuk", "Keluar", "Nilai"],
+      data.rows.map((r) => [r.date, r.ref, r.type, r.name, r.unit, r.qty_in, r.qty_out, r.value])
+    );
+  };
+  if (!data) return <div className="loading-state">Memuat...</div>;
+  return (
+    <>
+      <ReportBar>
+        <DateRange start={start} end={end} onStart={setStart} onEnd={setEnd} />
+        <label className="field small"><span>Filter SKU</span>
+          <input data-testid="movement-sku" value={sku} onChange={(e) => setSku(e.target.value)} placeholder="Kosong = semua" />
+        </label>
+        <Summary items={[
+          { label: "Baris gerakan", value: data.totals.count },
+          { label: "Total masuk", value: `${data.totals.total_qty_in} · ${compactMoney(data.totals.total_value_in)}`, tone: "green" },
+          { label: "Total keluar", value: `${data.totals.total_qty_out} · ${compactMoney(data.totals.total_value_out)}`, tone: "amber" },
+        ]} />
+        <ExportBtn onClick={download} disabled={data.rows.length === 0} />
+      </ReportBar>
+      <ReportTable
+        headers={["Tanggal", "Ref", "Tipe", "Item", "Masuk", "Keluar", "Nilai"]}
+        rows={data.rows.map((r) => [
+          <small>{formatDate(r.date)}</small>,
+          <strong>{r.ref}</strong>,
+          <Badge tone={r.type.startsWith("IN") ? "green" : r.type.startsWith("OUT") ? "amber" : "blue"}>{r.type}</Badge>,
+          <><strong>{r.name}</strong> <small>{r.unit}</small></>,
+          r.qty_in > 0 ? <span className="success-text"><strong>+{r.qty_in}</strong></span> : "-",
+          r.qty_out > 0 ? <span className="danger-text"><strong>-{r.qty_out}</strong></span> : "-",
+          money(r.value),
+        ])}
+      />
+    </>
+  );
+}
+
+// ============ 5. Flash Cost Financial ============
+function FlashCostFinancial() {
+  const t = today();
+  const [start, setStart] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 6);
+    return d.toISOString().slice(0, 10);
+  });
+  const [end, setEnd] = useState(t);
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    api.get("/reports/financial/flash-cost", { params: { start, end } })
+      .then((r) => setData(r.data));
+  }, [start, end]);
+  const download = () => {
+    exportCSV(
+      `flash-cost-${start}_${end}.csv`,
+      ["Tanggal", "Konsumsi (cost)", "Revenue", "Persentase"],
+      data.daily.map((d) => [d.date, d.cost, d.revenue, d.percentage])
+    );
+  };
+  if (!data) return <div className="loading-state">Memuat...</div>;
+  return (
+    <>
+      <ReportBar>
+        <DateRange start={start} end={end} onStart={setStart} onEnd={setEnd} />
+        <Summary items={[
+          { label: "Total cost", value: money(data.totals.total_cost), tone: "amber" },
+          { label: "Total revenue", value: money(data.totals.total_revenue), tone: "green" },
+          { label: "Persentase", value: `${data.totals.percentage}%`, tone: data.totals.percentage <= 32 ? "green" : "amber" },
+        ]} />
+        <ExportBtn onClick={download} disabled={data.daily.length === 0} />
+      </ReportBar>
+      <section className="panel">
+        <PanelHead title="Ringkasan per outlet" detail={`Periode ${data.period.start} → ${data.period.end}`} />
+        <ReportTable
+          headers={["Outlet", "Konsumsi", "Revenue", "Flash cost %"]}
+          rows={data.by_outlet.map((r) => [
+            <strong>{r.outlet_name}</strong>,
+            money(r.cost),
+            money(r.revenue),
+            <Badge tone={r.percentage <= 32 ? "green" : r.percentage <= 40 ? "amber" : "neutral"}>{r.percentage}%</Badge>,
+          ])}
+        />
+      </section>
+      <section className="panel" style={{ marginTop: 14 }}>
+        <PanelHead title="Rincian harian (semua outlet)" detail="Cost vs revenue" />
+        <ReportTable
+          headers={["Tanggal", "Konsumsi", "Revenue", "Persentase"]}
+          rows={data.daily.map((r) => [
+            <strong>{r.date}</strong>,
+            money(r.cost),
+            money(r.revenue),
+            <Badge tone={r.percentage <= 32 ? "green" : r.percentage <= 40 ? "amber" : "neutral"}>{r.percentage}%</Badge>,
+          ])}
+        />
+      </section>
+    </>
+  );
+}
+
+// ============ 6. Low Stock ============
+function LowStock() {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    api.get("/reports/low-stock").then((r) => setData(r.data));
+  }, []);
+  const download = () => {
+    exportCSV(
+      `low-stock-${today()}.csv`,
+      ["SKU", "Nama", "Kategori", "Outlet", "Stok", "Min", "Perlu order", "Unit", "Supplier", "HPP"],
+      data.rows.map((r) => [r.sku, r.name, r.category, r.outlet_code, r.stock, r.min_stock, r.need_to_order, r.unit, r.supplier, r.cost])
+    );
+  };
+  if (!data) return <div className="loading-state">Memuat...</div>;
+  return (
+    <>
+      <ReportBar>
+        <Summary items={[{ label: "Item low stock", value: data.totals.count, tone: "amber" }]} />
+        <ExportBtn onClick={download} disabled={data.rows.length === 0} />
+      </ReportBar>
+      <ReportTable
+        headers={["SKU", "Nama", "Kategori", "Outlet", "Stok", "Min", "Perlu order", "Supplier"]}
+        rows={data.rows.map((r) => [
+          <Badge tone="neutral">{r.sku}</Badge>,
+          <strong>{r.name}</strong>,
+          r.category,
+          outletNames[r.outlet_code] || r.outlet_code,
+          <span className="danger-text"><strong>{r.stock} {r.unit}</strong></span>,
+          `${r.min_stock} ${r.unit}`,
+          <strong>{r.need_to_order} {r.unit}</strong>,
+          r.supplier || "-",
+        ])}
+      />
+    </>
+  );
+}
+
+// ============ 7. Top Consumed ============
+function TopConsumed() {
+  const [days, setDays] = useState(30);
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    api.get("/reports/top-consumed", { params: { days, limit: 30 } }).then((r) => setData(r.data));
+  }, [days]);
+  const download = () => {
+    exportCSV(
+      `top-consumed-${days}d-${today()}.csv`,
+      ["Item", "Unit", "Qty terpakai", "Nilai", "Jumlah transaksi"],
+      data.rows.map((r) => [r.name, r.unit, r.qty, r.value, r.transactions])
+    );
+  };
+  if (!data) return <div className="loading-state">Memuat...</div>;
+  return (
+    <>
+      <ReportBar>
+        <label className="field small"><span>Rentang hari</span>
+          <select data-testid="top-consumed-days" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+            <option value={7}>7 hari</option>
+            <option value={14}>14 hari</option>
+            <option value={30}>30 hari</option>
+            <option value={60}>60 hari</option>
+            <option value={90}>90 hari</option>
+          </select>
+        </label>
+        <Summary items={[
+          { label: "Item terpakai", value: data.totals.item_count },
+          { label: "Nilai total", value: money(data.totals.total_value), tone: "teal" },
+        ]} />
+        <ExportBtn onClick={download} disabled={data.rows.length === 0} />
+      </ReportBar>
+      <ReportTable
+        headers={["Peringkat", "Item", "Qty", "Nilai", "Transaksi"]}
+        rows={data.rows.map((r, idx) => [
+          <strong>#{idx + 1}</strong>,
+          <><strong>{r.name}</strong> <small>{r.unit}</small></>,
+          <strong>{r.qty}</strong>,
+          <strong>{money(r.value)}</strong>,
+          r.transactions,
+        ])}
+      />
+    </>
+  );
+}
+
+// ============ Shared UI ============
+function ReportBar({ children }) {
+  return <div className="report-bar">{children}</div>;
+}
+function DateRange({ start, end, onStart, onEnd }) {
+  return (
+    <>
+      <label className="field small"><span>Dari</span>
+        <input type="date" value={start} onChange={(e) => onStart(e.target.value)} data-testid="report-start" />
+      </label>
+      <label className="field small"><span>Sampai</span>
+        <input type="date" value={end} onChange={(e) => onEnd(e.target.value)} data-testid="report-end" />
+      </label>
+    </>
+  );
+}
+function Summary({ items }) {
+  return (
+    <div className="report-summary">
+      {items.map((i) => (
+        <div className="summary-tile" key={i.label}>
+          <span>{i.label}</span>
+          <strong className={i.tone || ""}>{i.value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+function ExportBtn({ onClick, disabled }) {
+  return (
+    <button data-testid="report-export-btn" className="secondary-button" onClick={onClick} disabled={disabled}>
+      <Download size={14} /> Export CSV
+    </button>
+  );
+}
+function ReportTable({ headers, rows }) {
+  return (
+    <section className="panel">
+      <div className="table-wrap">
+        <table>
+          <thead><tr>{headers.map((h) => <th key={h}>{h}</th>)}</tr></thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr><td colSpan={headers.length} style={{ textAlign: "center", padding: 40 }}>Tidak ada data.</td></tr>
+            ) : (
+              rows.map((r, i) => (
+                <tr key={i}>{r.map((c, j) => <td key={j}>{c}</td>)}</tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
