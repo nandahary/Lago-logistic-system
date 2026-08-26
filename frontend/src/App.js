@@ -15,6 +15,7 @@ import HPPPage from "./pages/HPPPage";
 import FlashCostPage from "./pages/FlashCostPage";
 import RevenuePage from "./pages/RevenuePage";
 import SuppliersPage from "./pages/SuppliersPage";
+import UsersPage from "./pages/UsersPage";
 import { api } from "./lib/api";
 
 function ProtectedShell() {
@@ -63,6 +64,10 @@ function ProtectedShell() {
         <Route path="/hpp" element={<HPPPage />} />
         <Route path="/revenue" element={<RevenuePage />} />
         <Route path="/flash" element={<FlashCostPage />} />
+        <Route
+          path="/users"
+          element={user.role === "admin" ? <UsersPage /> : <Navigate to="/dashboard" replace />}
+        />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

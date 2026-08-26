@@ -4,10 +4,10 @@ import { useAuth } from "../context/AuthContext";
 import { roleLabels } from "../lib/format";
 import {
   Bell, Menu, LogOut, X, LayoutDashboard, Box, ShoppingCart, Truck, ChevronRight,
-  ClipboardCheck, Calculator, Flame, Coins, Users,
+  ClipboardCheck, Calculator, Flame, Coins, Users, UserCog,
 } from "lucide-react";
 
-export const NAV = [
+const BASE_NAV = [
   ["/dashboard", "Ringkasan", LayoutDashboard],
   ["/inventory", "Master barang", Box],
   ["/suppliers", "Supplier", Users],
@@ -20,6 +20,8 @@ export const NAV = [
   ["/flash", "Flash cost", Flame],
 ];
 
+const ADMIN_NAV = [["/users", "Manajemen user", UserCog]];
+
 export default function Layout({
   outletCode,
   onOutletChange,
@@ -31,6 +33,7 @@ export default function Layout({
   const navigate = useNavigate();
   const location = useLocation();
   const [open, setOpen] = React.useState(false);
+  const NAV = user?.role === "admin" ? [...BASE_NAV, ...ADMIN_NAV] : BASE_NAV;
   const active = NAV.find(([p]) => location.pathname.startsWith(p));
   const title = active?.[1] || "Ringkasan";
   const activeId = active ? active[0].slice(1) : "dashboard";

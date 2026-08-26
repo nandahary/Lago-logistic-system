@@ -286,8 +286,57 @@ async def register(payload: UserCreateIn, user: dict = Depends(require_roles("ad
 
 @api.get("/users")
 async def list_users(user: dict = Depends(require_roles("admin"))):
-    users = await db.users.find({}).to_list(200)
+    users = await db.users.find({}).sort("created_at", -1).to_list(500)
     return [serialize_doc(u) for u in users]
+
+
+class UserUpdateIn(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    password: Optional[str] = None
+
+
+@api.patch("/users/{user_id}")
+async def update_user(
+    user_id: str,
+    payload: UserUpdateIn,
+    current_user: dict = Depends(require_roles("admin")),
+):
+    updates: Dict[str, Any] = {}
+    if payload.name is not None:
+        updates["name"] = payload.name
+    if payload.role is not None:
+        if payload.role not in {"admin", "purchasing", "warehouse", "finance"}:
+            raise HTTPException(status_code=400, detail="Role tidak valid")
+        updates["role"] = payload.role
+    if payload.password:
+        updates["password_hash"] = hash_password(payload.password)
+    if not updates:
+        raise HTTPException(status_code=400, detail="Tidak ada perubahan")
+    updates["updated_at"] = iso(now_utc())
+    result = await db.users.update_one({"_id": to_oid(user_id)}, {"$set": updates})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User tidak ditemukan")
+    doc = await db.users.find_one({"_id": to_oid(user_id)})
+    return serialize_doc(doc)
+
+
+@api.delete("/users/{user_id}")
+async def delete_user(
+    user_id: str, current_user: dict = Depends(require_roles("admin"))
+):
+    if str(current_user.get("id")) == user_id:
+        raise HTTPException(status_code=400, detail="Tidak dapat menghapus akun sendiri")
+    target = await db.users.find_one({"_id": to_oid(user_id)})
+    if not target:
+        raise HTTPException(status_code=404, detail="User tidak ditemukan")
+    # Prevent deleting the last admin
+    if target.get("role") == "admin":
+        admin_count = await db.users.count_documents({"role": "admin"})
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="Minimal harus ada 1 admin")
+    await db.users.delete_one({"_id": to_oid(user_id)})
+    return {"deleted": True}
 
 
 # ==============================================================================
@@ -371,6 +420,83 @@ async def delete_supplier(
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Supplier tidak ditemukan")
     return {"deleted": True}
+
+
+@api.post("/suppliers/bulk-upload")
+async def suppliers_bulk_upload(
+    file: UploadFile = File(...),
+    user: dict = Depends(require_roles("admin", "purchasing")),
+):
+    """CSV header: name,contact_person,phone,email,address,lead_time_days,payment_terms[,code,notes]"""
+    content = await file.read()
+    rows = _parse_csv(content)
+    if not rows:
+        raise HTTPException(status_code=400, detail="CSV kosong atau format tidak dikenali")
+    created, updated, errors = 0, 0, []
+    for i, r in enumerate(rows, start=2):
+        try:
+            name = (r.get("name") or "").strip()
+            if not name:
+                errors.append(f"Baris {i}: nama supplier kosong")
+                continue
+            code = (r.get("code") or "").strip() or await next_supplier_code()
+            lead = 0
+            try:
+                lead = int(_num(r.get("lead_time_days"), default=0))
+            except Exception:
+                lead = 0
+            doc = {
+                "code": code,
+                "name": name,
+                "contact_person": (r.get("contact_person") or "").strip(),
+                "phone": (r.get("phone") or "").strip(),
+                "email": (r.get("email") or "").strip(),
+                "address": (r.get("address") or "").strip(),
+                "lead_time_days": lead,
+                "payment_terms": (r.get("payment_terms") or "").strip(),
+                "notes": (r.get("notes") or "").strip(),
+                "updated_at": iso(now_utc()),
+            }
+            existing = await db.suppliers.find_one({"code": code}) if r.get("code") else None
+            if existing:
+                await db.suppliers.update_one({"_id": existing["_id"]}, {"$set": doc})
+                updated += 1
+            else:
+                doc["created_at"] = iso(now_utc())
+                await db.suppliers.insert_one(doc)
+                created += 1
+        except Exception as e:
+            errors.append(f"Baris {i}: {str(e)}")
+    return {"created": created, "updated": updated, "errors": errors, "total": len(rows)}
+
+
+# ==============================================================================
+# Reset transactions (Admin only) — for demo/cleanup
+# ==============================================================================
+@api.post("/admin/reset-transactions")
+async def reset_transactions(user: dict = Depends(require_roles("admin"))):
+    """Hapus semua transaksi (PO, GRN, Issue, Opname, Revenue, Recipe) dan
+    reset stok/HPP item ke nilai seed. Master data (users, outlets, suppliers, items metadata) tetap."""
+    pos = await db.purchase_orders.delete_many({})
+    grns = await db.receivings.delete_many({})
+    iss = await db.issues.delete_many({})
+    opn = await db.opnames.delete_many({})
+    rev = await db.revenues.delete_many({})
+    rec = await db.recipes.delete_many({})
+    # Reset items — drop dan seed ulang (memakai fungsi seed yang skip jika ada)
+    await db.items.delete_many({})
+    await seed_data()
+    return {
+        "deleted": {
+            "purchase_orders": pos.deleted_count,
+            "receivings": grns.deleted_count,
+            "issues": iss.deleted_count,
+            "opnames": opn.deleted_count,
+            "revenues": rev.deleted_count,
+            "recipes": rec.deleted_count,
+        },
+        "items_reseeded": True,
+    }
 
 
 # ==============================================================================

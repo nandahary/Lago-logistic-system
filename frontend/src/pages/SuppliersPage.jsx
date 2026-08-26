@@ -1,9 +1,18 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Check, Trash2, Search, Pencil } from "lucide-react";
+import { Plus, Check, Trash2, Search, Pencil, Upload } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { PageIntro, PanelHead, Modal, Field, Badge } from "../components/UI";
+import { BulkUploadDialog } from "../components/BulkUpload";
 import { useAuth } from "../context/AuthContext";
+
+const TEMPLATE = {
+  headers: ["name", "contact_person", "phone", "email", "address", "lead_time_days", "payment_terms", "code", "notes"],
+  example: [
+    ["PT Contoh Vendor", "Bapak Andi", "0811-1234-567", "andi@vendor.co.id", "Jl. Sunset Rd No.1, Kuta", "2", "Net 14", "", ""],
+    ["CV Fresh Bahari", "Ibu Made", "0812-9876-543", "made@freshbahari.id", "Pelabuhan Benoa, Denpasar", "1", "COD", "", "Ikan & seafood"],
+  ],
+};
 
 export default function SuppliersPage() {
   const { user } = useAuth();
@@ -94,13 +103,22 @@ export default function SuppliersPage() {
         testid="suppliers-title"
         action={
           canEdit && (
-            <button
-              data-testid="supplier-add-button"
-              className="primary-button"
-              onClick={openNew}
-            >
-              <Plus size={17} /> Tambah supplier
-            </button>
+            <div className="action-cluster">
+              <button
+                data-testid="supplier-upload-button"
+                className="secondary-button"
+                onClick={() => setModal({ mode: "upload" })}
+              >
+                <Upload size={16} /> Upload CSV
+              </button>
+              <button
+                data-testid="supplier-add-button"
+                className="primary-button"
+                onClick={openNew}
+              >
+                <Plus size={17} /> Tambah supplier
+              </button>
+            </div>
           )
         }
       />
@@ -180,7 +198,26 @@ export default function SuppliersPage() {
         </div>
       </section>
 
-      {modal && (
+      {modal && modal.mode === "upload" && (
+        <BulkUploadDialog
+          title="Upload katalog supplier (CSV)"
+          endpoint="/suppliers/bulk-upload"
+          templateName="supplier_template.csv"
+          templateHeaders={TEMPLATE.headers}
+          templateExample={TEMPLATE.example}
+          instructions={
+            <>
+              Kolom <b>name</b> wajib. Jika kolom <b>code</b> disertakan dan sudah ada, data
+              supplier akan di-update. <b>lead_time_days</b> berupa angka (hari).
+            </>
+          }
+          onClose={() => setModal(null)}
+          onSuccess={load}
+          testid="supplier-upload"
+        />
+      )}
+
+      {modal && modal.mode !== "upload" && (
         <Modal
           title={modal.mode === "edit" ? "Edit supplier" : "Tambah supplier"}
           onClose={() => setModal(null)}
