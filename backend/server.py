@@ -1586,41 +1586,11 @@ async def seed_data():
             upsert=True,
         )
 
-    # Suppliers
-    seed_suppliers = [
-        ("SUP-0001", "PT Boga Utama", "Bapak Andi", "0811-1111-001", "andi@bogautama.co.id", "Jl. Sunset Rd No. 88, Kuta, Bali", 2, "Net 14"),
-        ("SUP-0002", "CV Tani Makmur", "Ibu Sri", "0821-2222-002", "sri@tanimakmur.id", "Jl. Raya Denpasar-Gilimanuk KM 30, Tabanan", 3, "Net 7"),
-        ("SUP-0003", "PT Sinar Mas", "Bapak Tono", "0812-3333-003", "sales@sinarmas.co.id", "Jl. Bypass Ngurah Rai No. 12, Sanur", 1, "COD"),
-        ("SUP-0004", "PT Pernod Ricard", "Ms. Linda", "021-5555-004", "linda@pernodricard.com", "Sudirman Central Business District, Jakarta", 5, "Net 30"),
-        ("SUP-0005", "CV Amenity Bali", "Bapak Wayan", "0813-4444-005", "wayan@amenitybali.id", "Jl. Kartika Plaza No. 44, Legian", 3, "Net 14"),
-        ("SUP-0006", "PT Ocean Fresh", "Bapak Made", "0812-5555-006", "made@oceanfresh.co.id", "Pelabuhan Benoa, Denpasar", 1, "COD"),
-        ("SUP-0007", "PT Frisian Flag", "Ms. Rina", "021-6666-007", "rina@frisianflag.co.id", "Cikini, Jakarta Pusat", 4, "Net 30"),
-        ("SUP-0008", "PT Cellar Master", "Bapak Kevin", "0812-7777-008", "kevin@cellarmaster.id", "Petitenget, Kerobokan", 3, "Net 14"),
-        ("SUP-0009", "PT Textile Jaya", "Ibu Marina", "021-8888-009", "marina@textilejaya.co.id", "Kawasan Industri Tangerang", 7, "Net 30"),
-        ("SUP-0010", "PT Charoen Pokphand", "Bapak Bambang", "0812-9999-010", "bambang@charoen.co.id", "Jl. Diponegoro Denpasar", 1, "Net 7"),
-        ("SUP-0011", "CV Kebun Segar", "Bapak Ketut", "0821-1111-011", "ketut@kebunsegar.id", "Bedugul, Tabanan", 1, "COD"),
-        ("SUP-0012", "PT Kopi Bali", "Ibu Dewi", "0812-1212-012", "dewi@kopibali.co.id", "Ubud, Gianyar", 2, "Net 14"),
-    ]
-    for code, name, contact, phone, email, address, lead, terms in seed_suppliers:
-        await db.suppliers.update_one(
-            {"code": code},
-            {
-                "$setOnInsert": {
-                    "code": code,
-                    "name": name,
-                    "contact_person": contact,
-                    "phone": phone,
-                    "email": email,
-                    "address": address,
-                    "lead_time_days": lead,
-                    "payment_terms": terms,
-                    "notes": "",
-                    "created_at": iso(now_utc()),
-                    "updated_at": iso(now_utc()),
-                }
-            },
-            upsert=True,
-        )
+    # Suppliers — seeded only if collection empty; users can add their own catalog
+    # (Sample suppliers removed per user request. Uncomment block below to reseed.)
+    # seed_suppliers = []
+    # for code, name, contact, phone, email, address, lead, terms in seed_suppliers:
+    #     await db.suppliers.update_one(...)
 
     # Items
     if await db.items.count_documents({}) == 0:
@@ -1657,33 +1627,7 @@ async def seed_data():
                 }
             )
 
-    # Sample PO
-    if await db.purchase_orders.count_documents({}) == 0:
-        items_sample = await db.items.find({}).limit(2).to_list(2)
-        if items_sample:
-            await db.purchase_orders.insert_one(
-                {
-                    "po_number": "PO-0001",
-                    "supplier": items_sample[0].get("supplier", "Supplier"),
-                    "outlet_code": items_sample[0].get("outlet_code", "kitchen"),
-                    "items": [
-                        {
-                            "item_id": str(items_sample[0]["_id"]),
-                            "name": items_sample[0]["name"],
-                            "qty": 20,
-                            "unit": items_sample[0]["unit"],
-                            "price": float(items_sample[0]["cost"]),
-                        }
-                    ],
-                    "total": 20 * float(items_sample[0]["cost"]),
-                    "status": "waiting_approval",
-                    "notes": "PO contoh untuk demo",
-                    "created_by": "purchasing@hinto.id",
-                    "created_at": iso(now_utc()),
-                    "approved_by": None,
-                    "approved_at": None,
-                }
-            )
+    # Sample PO removed per user request — collection remains empty on fresh install.
 
 
 async def ensure_indexes():
