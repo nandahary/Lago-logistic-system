@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 3 full-stack test of LAGO BALI (HINTO) inventory app. Backend: updated /app/backend/tests/backend_test.py for the new PO-mandatory receiving rules and added a new TestSkuAndAnalytics suite (SKU search, seed SKUs, /api/analytics shape + clamping + auth, auto-SKU, duplicate SKU) and new receiving bulk-upload CSV shape (po_number,item_sku,qty,price). 47/47 pytest tests pass. Frontend: verified LAGO BALI + 'Dibuat oleh NANDA HARY' branding (login + sidebar), 4 metric cards + 4 analytics panels with recharts SVGs, SKU badges + SKU search filtering (14->3 rows for 'PRT'), 'Kode SKU (opsional)' field, and the complete purchasing->finance approve->warehouse receive flow (auto-populated lines, GRN saved with Ref PO badge, PO removed from receiving dropdown after receive). Found 2 non-blocking frontend defects: hard reload/deep-link always renders Dashboard (no URL routing) and modals do not close on Escape.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/receivings", "issue": "ReceivingCreateIn.supplier is a required field although the handler falls back to po.supplier (`payload.supplier or po.get('supplier')`). Omitting supplier returns 422 before the intended PO validations run. Make supplier Optional[str]=None for consistency with the fallback logic."},
+      {"endpoint": "POST /api/recipes", "issue": "No DELETE/PATCH endpoint for recipes, so test/demo recipes cannot be cleaned up. Recipe HPP silently becomes 0 when an ingredient item was deleted (no orphan indication)."},
+      {"endpoint": "GET /api/analytics", "issue": "top_consumed reflects any historical issue rows (test data), no way to purge issues/GRNs; not a bug but demo data can look polluted. QA test items/POs were cleaned up manually (13 seed items remain)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "UI/Modal (components/UI.jsx)", "issue": "Modal does not close on Escape key; only the X/Batal buttons work and the backdrop keeps intercepting pointer events, blocking other clicks (e.g. logout) until closed", "selector": "[data-testid=\"modal-backdrop\"]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "Navigation / deep-link + page refresh", "issue": "App.js uses state-based navigation (useState('dashboard')) with no react-router routes although react-router-dom 7.15.0 is installed. URL never changes on navigation, and a hard reload or direct deep-link to /receiving renders the Dashboard while the sidebar/URL suggest Penerimaan. Bookmarking/sharing/refresh of any page is broken.", "affected_selectors": ["[data-testid=\"nav-receiving\"]", "[data-testid=\"receiving-primary-action\"]"]}
+    ],
+    "design_issues": [
+      {"screen": "Dashboard / Receiving / Inventory", "issues": ["No blocking contrast or spacing problems observed at 1920x1080; charts, metric cards, banners and tables render cleanly", "Analytics 'Item paling banyak dikonsumsi' panel is a bar chart (recharts) - only 3 recharts SVGs total, top-consumed panel included, matches spec"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Migrate App.js navigation to react-router-dom routes so refresh/deep-link keeps the current page (currently reload always shows Dashboard)",
+    "Add Escape-key (and optional backdrop-click) close handling to the shared Modal component",
+    "Make ReceivingCreateIn.supplier Optional since the handler already falls back to the PO supplier"
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1421 lines - split into routers (items/orders/receivings/analytics/bulk) for maintainability",
+    "approve_opname uses raw ObjectId(line['item_id']) instead of to_oid(), so corrupt stored ids would raise a 500 instead of 400; same in list_recipes",
+    "PO->receiving accepts status 'received' again, allowing repeat receiving of the same PO (stock/HPP applied twice). Consider blocking or tracking partially/fully received quantities."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (47/47)", "frontend": "90% (all iteration-3 features pass; routing-on-refresh and modal Esc defects)"},
+  "seed_data_creation": "Used existing seed (13 items with category-prefix SKUs PRT/VEG/AMN/DRY/BEV). Test-created TEST_ items deleted, 15 TEST/QA purchase orders cancelled after testing. GRN/issue/recipe test rows remain (no delete endpoints).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@hinto.id/admin123, purchasing@hinto.id, warehouse@hinto.id, finance@hinto.id (demo123) - all valid",
+  "context_for_next_testing_agent": "backend_test.py now covers PO-mandatory receiving (no po_id 400, invalid oid 400, unknown 404, unapproved 400, item-not-in-PO 400, weighted-average + PO->received), new receivings bulk CSV (po_number,item_sku,qty,price), SKU search, seed SKU checks and /api/analytics. Note receiving requires 'supplier' in the payload (422 otherwise). Receiving a PO twice is currently allowed (status 'received' accepted) - untested edge case worth watching. Frontend has no URL routing, so always navigate via [data-testid=\"nav-*\"] instead of page.goto(path).",
+  "rca_of_the_issue": "Refresh bug: App.js Shell keeps the active page in React state with no react-router mapping to window.location, so any full page load restarts at 'dashboard' while the browser URL (served by the SPA fallback) still shows the old path. Modal bug: components/UI.jsx Modal renders a fixed .modal-backdrop with only an onClick close on the X button and no keydown listener, so Esc leaves the backdrop mounted and it swallows clicks on the rest of the app."
+}

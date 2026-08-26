@@ -1,0 +1,120 @@
+{
+  "app_name": "Hotel & FnB Inventory Management System (HINTO)",
+  "context": "Dashboard & Enterprise Operations for Hotel and FnB Inventory",
+  "theme": "Light mode primary with dark mode support, hospitality executive aesthetic, sharp edges with subtle 8px border radius, high density data presentation with clean typography",
+  "archetype": "ORGANIC & EARTHY / LUXURY HOSPITALITY (Warm sand, obsidian, emerald accents, professional executive slate)",
+  "forbidden_colors": [
+    "#1B93A4",
+    "#7351B7"
+  ],
+  "forbidden_fonts": [
+    "space grotesk",
+    "inter"
+  ],
+  "typography": {
+    "headings": "Plus Jakarta Sans, Cabinet Grotesk, sans-serif",
+    "body": "Plus Jakarta Sans, Inter, sans-serif",
+    "weights": {
+      "light": "font-light",
+      "normal": "font-normal",
+      "medium": "font-medium",
+      "semibold": "font-semibold",
+      "bold": "font-bold",
+      "black": "font-black"
+    }
+  },
+  "colors": {
+    "primary": "#0F172A",
+    "primary_foreground": "#FFFFFF",
+    "accent": "#0D9488",
+    "accent_foreground": "#FFFFFF",
+    "background": "#F8FAFC",
+    "card": "#FFFFFF",
+    "card_foreground": "#0F172A",
+    "border": "#E2E8F0",
+    "muted": "#F1F5F9",
+    "muted_foreground": "#64748B",
+    "success": "#10B981",
+    "warning": "#F59E0B",
+    "destructive": "#EF4444"
+  },
+  "roles": [
+    {
+      "role": "Admin",
+      "permissions": "Full access to all multi-outlet inventories, user management, HPP formulas, financial reports, system configuration"
+    },
+    {
+      "role": "Purchasing",
+      "permissions": "Create & manage Purchase Orders (PO), supplier database, price comparison, receiving validation"
+    },
+    {
+      "role": "Gudang (Warehouse)",
+      "permissions": "Manage stock in/out, goods receiving (GRN), transfers between outlets (Kitchen, Bar, Housekeeping), Stock Opname count"
+    },
+    {
+      "role": "Finance",
+      "permissions": "HPP calculation, Flash Cost tracking, cost variance reports, invoice matching, financial analytics in Rupiah (IDR)"
+    }
+  ],
+  "outlets": [
+    {
+      "id": "main_wh",
+      "name": "Main Warehouse (Gudang Utama)"
+    },
+    {
+      "id": "kitchen",
+      "name": "Kitchen / Restoran"
+    },
+    {
+      "id": "bar",
+      "name": "Bar & Beverage"
+    },
+    {
+      "id": "housekeeping",
+      "name": "Housekeeping & Amenities"
+    }
+  ],
+  "key_modules": [
+    {
+      "name": "Dashboard",
+      "features": ["Low stock alerts", "Total inventory valuation (IDR)", "Flash cost daily tracker", "Pending POs", "Recent stock movements"]
+    },
+    {
+      "name": "Master Barang & Kategori",
+      "features": ["Item database with flexible units (kg, liter, pcs, carton)", "SKU generation", "Minimum stock threshold", "Supplier assignment", "Cost per unit (HPP)"]
+    },
+    {
+      "name": "Purchase Order (PO)",
+      "features": ["Create PO to suppliers", "Approval workflow", "Status tracking (Draft, Sent, Received, Cancelled)", "Total cost calculation in Rupiah"]
+    },
+    {
+      "name": "Penerimaan Barang (Goods Receiving)",
+      "features": ["Verify incoming goods against PO", "Record batch/expiry date", "Auto-update stock level", "Discrepancy report"]
+    },
+    {
+      "name": "Barang Keluar (Stock Out / Requisition)",
+      "features": ["Departmental requisitions (Kitchen, Bar, HK)", "Issue stock items", "Track usage cost per department"]
+    },
+    {
+      "name": "Stock Opname (Physical Count)",
+      "features": ["Schedule stock counts", "System vs Physical quantity input", "Variance (Selisih) analysis", "Adjustment approval"]
+    },
+    {
+      "name": "Perhitungan HPP (Cost of Goods Sold)",
+      "features": ["Weighted average cost calculation", "Recipe costing for FnB menu", "Historical cost tracking"]
+    },
+    {
+      "name": "Flash Cost Daily",
+      "features": ["Daily food & beverage cost percentage tracking vs revenue", "Real-time cost control against budget"]
+    }
+  ],
+  "component_path": "/app/frontend/src/components/",
+  "instructions_to_main_agent": "Build a fully interactive, production-grade React application in /app/frontend/src with Tailwind CSS, Lucide icons, and Shadcn UI components. Ensure all modules (Dashboard, Master Barang, Purchase Order, Penerimaan Barang, Barang Keluar, Stock Opname, Perhitungan HPP, Flash Cost, and Role Switcher) are fully functional with realistic mock data in Rupiah (IDR), complete state management, filtering, search, modal forms for creating/editing, export/print simulation, and data-testid attributes on all interactive elements.",
+  "universal_guidelines": [
+    "Every interactive and key informational element MUST include a data-testid attribute in kebab-case (e.g., data-testid='po-submit-btn')",
+    "Never use pure black #000000 or grey without tint. Use slate/zinc color scales.",
+    "Use 2-3x comfortable spacing. Generous padding in cards (p-6 or p-8).",
+    "Ensure all buttons have hover states and explicit text colors.",
+    "Do not use forbidden fonts (Inter for headings, space grotesk) or forbidden colors (#1B93A4, #7351B7)."
+  ]
+}

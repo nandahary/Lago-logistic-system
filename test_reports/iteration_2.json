@@ -1,0 +1,52 @@
+{
+  "summary": "Full E2E test of HINTO inventory app (backend + frontend). Backend: created pytest suite (36 tests) covering auth/JWT, RBAC for all 4 roles, items CRUD, PO approve flow, receiving with weighted-average HPP verification, issues with stock deduction + cost_at_issue, opname draft->approve stock adjustment, revenue upsert, flash-cost math, dashboard, recipes/HPP, and all 4 CSV bulk-upload endpoints (create/update, per-row error reporting, RBAC). Result: 35/36 pass (1 real backend bug: invalid ObjectId -> 500). Frontend: tested login (all 4 roles), dashboard metrics, master barang list/search/create/outlet filter, all 4 CSV upload dialogs end-to-end with real file uploads, PO create + finance approve, GRN create, issue create, opname create (warehouse) + approve (finance), revenue input, flash cost date switching, HPP page, mobile nav, logout, and login error handling. Found and fixed 1 CRITICAL app-crashing React bug (useEffect returning a Promise -> 'destroy is not a function' uncaught runtime error that white-screened the app on Flash cost / Revenue / Inventory-search navigation). After the fix all frontend flows pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PATCH /api/items/{item_id} (and all other {id} routes: /orders/{id}/approve, /opnames/{id}/approve, /receivings, /issues)", "issue": "Malformed ObjectId in path/body raises bson.errors.InvalidId -> HTTP 500 'Internal Server Error' instead of 400/404. Confirmed in backend.err.log traceback. Add a safe ObjectId parser helper (e.g. to_oid() raising HTTPException(400)) and use it everywhere ObjectId(...) is called."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "FlashCostPage / RevenuePage / InventoryPage", "issue": "CRITICAL (FIXED BY TESTER): `useEffect(load, [deps])` where `load` returns an axios Promise. React treated the Promise as the cleanup function and threw 'TypeError: destroy is not a function', showing the red 'Uncaught runtime errors' overlay and white-screening the SPA. This blocked Flash cost, Revenue harian, HPP nav and Logout entirely. Fixed by wrapping in `useEffect(() => { load(); }, [deps])` in the 3 files. Please review the pattern and keep it consistent.", "selector": "[data-testid=\"flash-date-input\"], [data-testid=\"revenue-primary-action\"]", "priority": "CRITICAL"},
+      {"component": "OpnamePage", "issue": "openNew() resets the outlet selector to 'main_wh', but no seeded item lives in main_wh, so the opname modal always opens with 'Tidak ada item untuk outlet ini' and the user must manually switch outlet. Default to 'all' or to the first outlet that has items.", "selector": "[data-testid=\"opname-outlet-select\"]", "priority": "MEDIUM"},
+      {"component": "OpnamePage / OrdersPage approve", "issue": "Approvals use native window.confirm() instead of an in-app confirm dialog (inconsistent with the shadcn/custom Modal used everywhere else, and not testable/stylable).", "selector": "button[data-testid^=\"opname-approve-\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Global", "issues": ["No blocking design defects found. Contrast, spacing, table alignment, sidebar/active-state, toasts and mobile drawer (390px) all render correctly. Date inputs use the native browser date picker (data-testid=flash-date-input, revenue-date-input) rather than a shadcn calendar - acceptable but inconsistent with the rest of the design system."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Backend: wrap all ObjectId(...) conversions in a validator that returns 400/404 instead of leaking a 500 (bson InvalidId).",
+    "Review the useEffect fix applied by the tester in FlashCostPage.jsx, RevenuePage.jsx, InventoryPage.jsx (do not reintroduce `useEffect(load, deps)`).",
+    "OpnamePage: default opname outlet to one that actually contains items (or 'all') so the form is not empty on open.",
+    "Optional: replace window.confirm with the in-app Modal for PO/opname approvals.",
+    "Optional hardening: next_sku/next_po_number/next_grn_number/next_issue_number/next_opname_number derive numbers from count_documents(), which will collide with the unique indexes after any deletion. Use a counters collection or findOneAndUpdate sequence."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1227 lines - split into routers (auth, items, orders, receivings, issues, opnames, revenue, bulk_upload) plus a db/deps module.",
+    "ObjectId(...) is called on raw user input in ~12 places with no validation -> guaranteed 500s. Single biggest robustness gap.",
+    "Sequence generators based on count_documents() are not collision-safe against the unique indexes on po_number/grn_number/issue_number/opname_number/sku.",
+    "Bulk-upload endpoints mutate stock/HPP row-by-row with no transaction; a mid-file failure leaves partial state (documented in the response 'errors' array, but worth noting).",
+    "require_roles() silently grants admin access to every role-guarded route - intentional here, but it means role tests must never use the admin token.",
+    "serialize_doc correctly strips _id and password_hash; verified no _id leaks in /items, /orders, /dashboard.low_stock_items responses."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py",
+    "/app/frontend/src/pages/FlashCostPage.jsx",
+    "/app/frontend/src/pages/RevenuePage.jsx",
+    "/app/frontend/src/pages/InventoryPage.jsx"
+  ],
+  "success_rate": {"backend": "97% (35/36)", "frontend": "100% after the useEffect crash fix (was ~60% before)"},
+  "seed_data_creation": "Seed data verified (10 items, 4 outlets, 4 users, 1 sample PO). Tests additionally created TEST_/QA_-prefixed items, POs, GRNs, issues, opnames, a recipe (TEST_Nasi goreng) and a bar revenue row for today. API-created items were deleted in teardown; UI-created records (QA_UI Item Sabun, QA_Verify Item X, QA_CSV sabun cair, PO-0005+, GRN/ISS/OPN rows, revenue bar 7.500.000 for today) remain in the DB as demo data.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "/app/memory/test_credentials.md is present and correct: admin@hinto.id/admin123, purchasing@hinto.id, warehouse@hinto.id, finance@hinto.id all with demo123.",
+  "context_for_next_testing_agent": "Backend suite lives at /app/backend/tests/backend_test.py (pytest, uses REACT_APP_BACKEND_URL from /app/frontend/.env, runs in parallel via the preconfigured pytest.ini). Only known failing test is TestItems::test_patch_invalid_objectid (expects 400/404, backend returns 500). BulkUpload dialog testid prefixes differ per page: items-upload (Inventory), orders-upload (Orders), receivings-upload (Receiving, note the plural), issues-upload (Issues); children are <prefix>-dialog/-file-input/-submit/-preview/-result/-template-download. Approvals use window.confirm so Playwright needs page.on('dialog', lambda d: d.accept()). Opname modal defaults to outlet main_wh which has zero items - select 'kitchen' first. Flash cost figures depend on today's issues+revenue, so values drift between runs; assert ratio not absolute numbers.",
+  "rca_of_the_issue": "Frontend crash RCA: FlashCostPage.jsx:12, RevenuePage.jsx:21 and InventoryPage.jsx:31 used `useEffect(load, deps)` where `const load = () => api.get(...).then(...)`. React uses the effect's return value as the cleanup callback; here it received a Promise and called it on the next effect run/unmount, throwing 'TypeError: destroy is not a function' (React 19 StrictMode double-invoke made it fire immediately), which crashed the whole SPA behind the CRA error overlay. Repro: log in -> click 'Flash cost' in the sidebar -> red 'Uncaught runtime errors: destroy is not a function' overlay, all navigation dead. Fix applied: wrap the call so the effect returns undefined. Backend 500 RCA: ObjectId(item_id) on a non-hex string raises bson.errors.InvalidId which is not an HTTPException, so Starlette returns 500."
+}
