@@ -3,11 +3,13 @@ import { toast } from "sonner";
 import { Plus, Check } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { money, outletNames, formatDate } from "../lib/format";
+import { useOutlets } from "../lib/useOutlets";
 import { PageIntro, PanelHead, Modal, SelectField, Badge } from "../components/UI";
 import { useAuth } from "../context/AuthContext";
 
 export default function OpnamePage() {
   const { user } = useAuth();
+  const outletsList = useOutlets();
   const [list, setList] = useState([]);
   const [items, setItems] = useState([]);
   const [modal, setModal] = useState(null);
@@ -136,7 +138,16 @@ export default function OpnamePage() {
         <Modal title="Stock opname" onClose={() => setModal(null)}>
           <form onSubmit={submit}>
             <div className="form-grid">
-              <SelectField label="Outlet" testid="opname-outlet-select" value={outletCode} onChange={setOutletCode} options={[{ value: "main_wh", label: "Gudang utama" }, { value: "kitchen", label: "Kitchen" }, { value: "bar", label: "Bar" }, { value: "housekeeping", label: "Housekeeping" }, { value: "all", label: "Semua outlet" }]} />
+              <SelectField
+                label="Outlet"
+                testid="opname-outlet-select"
+                value={outletCode}
+                onChange={setOutletCode}
+                options={[
+                  ...outletsList.map((o) => ({ value: o.code, label: o.name })),
+                  { value: "all", label: "Semua outlet" },
+                ]}
+              />
               <label className="field">
                 <span>Catatan</span>
                 <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opname bulanan..." />

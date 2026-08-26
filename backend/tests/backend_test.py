@@ -272,7 +272,7 @@ class TestReceivingHPP:
                    "items": [{"item_id": it["id"], "name": it["name"], "qty": 1, "unit": "kg",
                               "price": 100}]}, timeout=30)
         assert r.status_code == 400, r.text
-        assert "belum disetujui" in r.json()["detail"]
+        assert "tidak dapat diterima" in r.json()["detail"], r.text
         admin.delete(f"{API}/items/{it['id']}", timeout=30)
 
     def test_receiving_item_not_in_po_400(self, tokens, admin):
@@ -626,7 +626,7 @@ class TestBulkUpload:
         assert r.status_code == 200, r.text
         d = r.json()
         assert d["created"] == 0, d
-        assert any("belum disetujui" in e for e in d["errors"]), d
+        assert any("tidak dapat diterima" in e for e in d["errors"]), d
         assert any("tidak ditemukan" in e for e in d["errors"]), d
         got = [i for i in admin.get(f"{API}/items", params={"search": "TEST_RU item"}, timeout=30).json()
                if i["id"] == it["id"]][0]
@@ -666,3 +666,244 @@ class TestBulkUpload:
                     files={"file": ("i.csv", _csv("issue_ref,to_outlet,item_sku,qty\na,kitchen,X,1\n"), "text/csv")},
                     timeout=60)
         assert r2.status_code == 403
+
+
+# ------------------------------------------------------------------ iteration 4: partial receive
+class TestPartialReceive:
+    """1 PO can be received across multiple GRNs; PO auto-closes when all lines complete."""
+
+    def _item(self, admin, tag, cost=100, stock=0):
+        sku = f"TEST{tag}-{uuid.uuid4().hex[:6]}"
+        r = admin.post(f"{API}/items", json={"sku": sku, "name": f"TEST_{tag} item", "category": "QA",
+                       "unit": "kg", "cost": cost, "stock": stock, "min_stock": 1,
+                       "outlet_code": "kitchen"}, timeout=30)
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def _po(self, tokens, lines, approve=True):
+        p = cl(tokens["purchasing"])
+        r = p.post(f"{API}/orders", json={"supplier": "TEST_Sup", "outlet_code": "main_wh",
+                   "items": lines}, timeout=30)
+        assert r.status_code == 200, r.text
+        po = r.json()
+        if approve:
+            po = cl(tokens["finance"]).post(f"{API}/orders/{po['id']}/approve", timeout=30).json()
+            assert po["status"] == "approved"
+        return po
+
+    def _po_state(self, admin, po_id):
+        orders = admin.get(f"{API}/orders", timeout=30).json()
+        return [o for o in orders if o["id"] == po_id][0]
+
+    def test_two_step_partial_then_full(self, tokens, admin):
+        it = self._item(admin, "PART", cost=100, stock=0)
+        po = self._po(tokens, [{"item_id": it["id"], "name": it["name"], "qty": 20,
+                                "unit": "kg", "price": 200}])
+        w = cl(tokens["warehouse"])
+        # GRN 1 - partial 5/20
+        r1 = w.post(f"{API}/receivings", json={"po_id": po["id"], "supplier": "TEST_Sup",
+                    "outlet_code": "main_wh",
+                    "items": [{"item_id": it["id"], "name": it["name"], "qty": 5,
+                               "unit": "kg", "price": 200}]}, timeout=30)
+        assert r1.status_code == 200, r1.text
+        st = self._po_state(admin, po["id"])
+        assert st["status"] == "partial", st["status"]
+        assert st["items"][0]["received_qty"] == 5, st["items"][0]
+        assert not st.get("received_at")
+        # GRN 2 - completes 20/20
+        r2 = w.post(f"{API}/receivings", json={"po_id": po["id"], "supplier": "TEST_Sup",
+                    "outlet_code": "main_wh",
+                    "items": [{"item_id": it["id"], "name": it["name"], "qty": 15,
+                               "unit": "kg", "price": 200}]}, timeout=30)
+        assert r2.status_code == 200, r2.text
+        st2 = self._po_state(admin, po["id"])
+        assert st2["status"] == "received", st2["status"]
+        assert st2["items"][0]["received_qty"] == 20
+        assert st2.get("received_at"), "received_at must be set when fully received"
+        # stock accumulated across both GRNs
+        got = [i for i in admin.get(f"{API}/items", params={"search": it["sku"]}, timeout=30).json()
+               if i["id"] == it["id"]][0]
+        assert got["stock"] == 20, got["stock"]
+        # third receive blocked
+        r3 = w.post(f"{API}/receivings", json={"po_id": po["id"], "supplier": "TEST_Sup",
+                    "outlet_code": "main_wh",
+                    "items": [{"item_id": it["id"], "name": it["name"], "qty": 1,
+                               "unit": "kg", "price": 200}]}, timeout=30)
+        assert r3.status_code == 400, r3.text
+        assert "tidak dapat diterima (status: received)" in r3.json()["detail"], r3.text
+        admin.delete(f"{API}/items/{it['id']}", timeout=30)
+
+    def test_receive_exceeding_remaining_400(self, tokens, admin):
+        it = self._item(admin, "OVER", stock=0)
+        po = self._po(tokens, [{"item_id": it["id"], "name": it["name"], "qty": 10,
+                                "unit": "kg", "price": 100}])
+        w = cl(tokens["warehouse"])
+        # over on first receive
+        r = w.post(f"{API}/receivings", json={"po_id": po["id"], "supplier": "TEST_Sup",
+                   "outlet_code": "main_wh",
+                   "items": [{"item_id": it["id"], "name": it["name"], "qty": 11,
+                              "unit": "kg", "price": 100}]}, timeout=30)
+        assert r.status_code == 400, r.text
+        assert "melebihi sisa PO" in r.json()["detail"], r.text
+        # partial 4, then over on remaining 6
+        assert w.post(f"{API}/receivings", json={"po_id": po["id"], "supplier": "TEST_Sup",
+                      "outlet_code": "main_wh",
+                      "items": [{"item_id": it["id"], "name": it["name"], "qty": 4,
+                                 "unit": "kg", "price": 100}]}, timeout=30).status_code == 200
+        r2 = w.post(f"{API}/receivings", json={"po_id": po["id"], "supplier": "TEST_Sup",
+                    "outlet_code": "main_wh",
+                    "items": [{"item_id": it["id"], "name": it["name"], "qty": 7,
+                               "unit": "kg", "price": 100}]}, timeout=30)
+        assert r2.status_code == 400, r2.text
+        assert "melebihi sisa PO" in r2.json()["detail"], r2.text
+        got = [i for i in admin.get(f"{API}/items", params={"search": it["sku"]}, timeout=30).json()
+               if i["id"] == it["id"]][0]
+        assert got["stock"] == 4, "rejected receive must not change stock"
+        assert self._po_state(admin, po["id"])["status"] == "partial"
+        admin.delete(f"{API}/items/{it['id']}", timeout=30)
+
+    def test_multi_line_partial(self, tokens, admin):
+        a = self._item(admin, "MLA", stock=0)
+        b = self._item(admin, "MLB", stock=0)
+        po = self._po(tokens, [
+            {"item_id": a["id"], "name": a["name"], "qty": 10, "unit": "kg", "price": 100},
+            {"item_id": b["id"], "name": b["name"], "qty": 5, "unit": "kg", "price": 50},
+        ])
+        w = cl(tokens["warehouse"])
+        # receive line A fully only -> still partial
+        r = w.post(f"{API}/receivings", json={"po_id": po["id"], "supplier": "TEST_Sup",
+                   "outlet_code": "main_wh",
+                   "items": [{"item_id": a["id"], "name": a["name"], "qty": 10,
+                              "unit": "kg", "price": 100}]}, timeout=30)
+        assert r.status_code == 200, r.text
+        st = self._po_state(admin, po["id"])
+        assert st["status"] == "partial", st["status"]
+        # now receive B -> received
+        r2 = w.post(f"{API}/receivings", json={"po_id": po["id"], "supplier": "TEST_Sup",
+                    "outlet_code": "main_wh",
+                    "items": [{"item_id": b["id"], "name": b["name"], "qty": 5,
+                               "unit": "kg", "price": 50}]}, timeout=30)
+        assert r2.status_code == 200, r2.text
+        assert self._po_state(admin, po["id"])["status"] == "received"
+        admin.delete(f"{API}/items/{a['id']}", timeout=30)
+        admin.delete(f"{API}/items/{b['id']}", timeout=30)
+
+    def test_bulk_upload_partial_then_received(self, tokens, admin):
+        it = self._item(admin, "BPART", cost=100, stock=0)
+        po = self._po(tokens, [{"item_id": it["id"], "name": it["name"], "qty": 10,
+                                "unit": "kg", "price": 100}])
+        w = cl(tokens["warehouse"])
+        text1 = f"po_number,item_sku,qty,price\n{po['po_number']},{it['sku']},6,100\n"
+        r1 = w.post(f"{API}/receivings/bulk-upload",
+                    files={"file": ("grn.csv", _csv(text1), "text/csv")}, timeout=60)
+        assert r1.status_code == 200 and r1.json()["created"] == 1, r1.text
+        assert self._po_state(admin, po["id"])["status"] == "partial"
+        # over-remaining row rejected
+        text_over = f"po_number,item_sku,qty,price\n{po['po_number']},{it['sku']},9,100\n"
+        r_over = w.post(f"{API}/receivings/bulk-upload",
+                        files={"file": ("grn.csv", _csv(text_over), "text/csv")}, timeout=60)
+        assert r_over.status_code == 200, r_over.text
+        assert r_over.json()["created"] == 0, r_over.json()
+        assert any("melebihi sisa PO" in e for e in r_over.json()["errors"]), r_over.json()
+        # complete remaining 4
+        text2 = f"po_number,item_sku,qty,price\n{po['po_number']},{it['sku']},4,100\n"
+        r2 = w.post(f"{API}/receivings/bulk-upload",
+                    files={"file": ("grn.csv", _csv(text2), "text/csv")}, timeout=60)
+        assert r2.status_code == 200 and r2.json()["created"] == 1, r2.text
+        st = self._po_state(admin, po["id"])
+        assert st["status"] == "received", st["status"]
+        got = [i for i in admin.get(f"{API}/items", params={"search": it["sku"]}, timeout=30).json()
+               if i["id"] == it["id"]][0]
+        assert got["stock"] == 10, got["stock"]
+        admin.delete(f"{API}/items/{it['id']}", timeout=30)
+
+    def test_partial_status_visible_in_orders_list(self, tokens, admin):
+        it = self._item(admin, "PSTAT", stock=0)
+        po = self._po(tokens, [{"item_id": it["id"], "name": it["name"], "qty": 8,
+                                "unit": "kg", "price": 10}])
+        w = cl(tokens["warehouse"])
+        w.post(f"{API}/receivings", json={"po_id": po["id"], "supplier": "TEST_Sup",
+               "outlet_code": "main_wh",
+               "items": [{"item_id": it["id"], "name": it["name"], "qty": 3,
+                          "unit": "kg", "price": 10}]}, timeout=30)
+        r = admin.get(f"{API}/orders", timeout=30)
+        assert r.status_code == 200, r.text
+        mine = [o for o in r.json() if o["id"] == po["id"]]
+        assert mine and mine[0]["status"] == "partial", mine
+        assert mine[0]["items"][0]["received_qty"] == 3
+        admin.delete(f"{API}/items/{it['id']}", timeout=30)
+
+
+# ------------------------------------------------------------------ iteration 4: supplier catalog
+class TestSuppliers:
+    def test_seeded_12_suppliers(self, admin):
+        r = admin.get(f"{API}/suppliers", timeout=30)
+        assert r.status_code == 200, r.text
+        sups = r.json()
+        codes = {s["code"] for s in sups}
+        for i in range(1, 13):
+            assert f"SUP-{i:04d}" in codes, f"missing SUP-{i:04d} in {sorted(codes)}"
+        seeded = [s for s in sups if s["code"].startswith("SUP-00")]
+        for s in seeded:
+            assert "_id" not in s
+            assert s.get("contact_person"), s
+            assert s.get("phone"), s
+            assert isinstance(s.get("lead_time_days"), (int, float)), s
+            assert s.get("payment_terms"), s
+
+    def test_search_by_name_and_code(self, admin):
+        sups = admin.get(f"{API}/suppliers", timeout=30).json()
+        target = [s for s in sups if s["code"] == "SUP-0003"][0]
+        r = admin.get(f"{API}/suppliers", params={"search": "SUP-0003"}, timeout=30)
+        assert r.status_code == 200
+        assert [s["id"] for s in r.json()] == [target["id"]], r.json()
+        name_frag = target["name"].split()[0]
+        r2 = admin.get(f"{API}/suppliers", params={"search": name_frag}, timeout=30)
+        assert r2.status_code == 200
+        assert target["id"] in [s["id"] for s in r2.json()]
+        r3 = admin.get(f"{API}/suppliers", params={"search": "ZZZNOTFOUND"}, timeout=30)
+        assert r3.json() == []
+
+    def test_crud_purchasing_create_admin_delete(self, tokens, admin):
+        p = cl(tokens["purchasing"])
+        code = f"TESTSUP-{uuid.uuid4().hex[:5]}"
+        payload = {"code": code, "name": "TEST_Supplier QA", "contact_person": "Budi",
+                   "phone": "0811", "email": "qa@test.id", "address": "Bali",
+                   "lead_time_days": 3, "payment_terms": "NET 14"}
+        r = p.post(f"{API}/suppliers", json=payload, timeout=30)
+        assert r.status_code == 200, r.text
+        sup = r.json()
+        assert sup["code"] == code and sup["lead_time_days"] == 3
+        assert "_id" not in sup
+        # GET verifies persistence
+        got = admin.get(f"{API}/suppliers", params={"search": code}, timeout=30).json()
+        assert len(got) == 1 and got[0]["payment_terms"] == "NET 14"
+        # duplicate code
+        assert p.post(f"{API}/suppliers", json=payload, timeout=30).status_code == 400
+        # PATCH by purchasing
+        r2 = p.patch(f"{API}/suppliers/{sup['id']}",
+                     json={"name": "TEST_Supplier QA v2", "lead_time_days": 9}, timeout=30)
+        assert r2.status_code == 200, r2.text
+        assert r2.json()["name"] == "TEST_Supplier QA v2" and r2.json()["lead_time_days"] == 9
+        got2 = admin.get(f"{API}/suppliers", params={"search": code}, timeout=30).json()[0]
+        assert got2["name"] == "TEST_Supplier QA v2" and got2["lead_time_days"] == 9
+        # non-admin cannot delete
+        assert p.delete(f"{API}/suppliers/{sup['id']}", timeout=30).status_code == 403
+        # admin deletes
+        assert admin.delete(f"{API}/suppliers/{sup['id']}", timeout=30).status_code == 200
+        assert admin.get(f"{API}/suppliers", params={"search": code}, timeout=30).json() == []
+        assert admin.delete(f"{API}/suppliers/{sup['id']}", timeout=30).status_code == 404
+
+    def test_rbac_readonly_roles(self, tokens):
+        for role in ("warehouse", "finance"):
+            c = cl(tokens[role])
+            assert c.get(f"{API}/suppliers", timeout=30).status_code == 200
+            r = c.post(f"{API}/suppliers", json={"name": "TEST_x"}, timeout=30)
+            assert r.status_code == 403, f"{role} POST -> {r.status_code}"
+
+    def test_suppliers_requires_auth(self):
+        assert requests.get(f"{API}/suppliers", timeout=30).status_code == 401
+
+    def test_patch_unknown_and_invalid_id(self, admin):
+        assert admin.patch(f"{API}/suppliers/{'a'*24}", json={"name": "x"}, timeout=30).status_code == 404
+        assert admin.patch(f"{API}/suppliers/notanid", json={"name": "x"}, timeout=30).status_code == 400

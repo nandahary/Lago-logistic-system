@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Toaster } from "sonner";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import "./App.css";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import Login from "./pages/Login";
@@ -13,66 +14,83 @@ import OpnamePage from "./pages/OpnamePage";
 import HPPPage from "./pages/HPPPage";
 import FlashCostPage from "./pages/FlashCostPage";
 import RevenuePage from "./pages/RevenuePage";
+import SuppliersPage from "./pages/SuppliersPage";
 import { api } from "./lib/api";
 
-function Shell() {
-  const [active, setActive] = useState("dashboard");
+function ProtectedShell() {
+  const { user, loading } = useAuth();
+  const location = useLocation();
   const [outletCode, setOutletCode] = useState("all");
   const [outlets, setOutlets] = useState([]);
-  const [dashSummary, setDashSummary] = useState({ pending_po: 0 });
-  const [reloadKey, setReloadKey] = useState(0);
+  const [pendingPo, setPendingPo] = useState(0);
+  const path = location.pathname;
 
   useEffect(() => {
+    if (!user) return;
     api.get("/outlets").then((r) => setOutlets(r.data)).catch(() => {});
-    api.get("/dashboard").then((r) => setDashSummary(r.data)).catch(() => {});
-  }, [reloadKey, active]);
+    api
+      .get("/dashboard")
+      .then((r) => setPendingPo(r.data.pending_po || 0))
+      .catch(() => {});
+  }, [user, path]);
 
-  const bumpRefresh = () => setReloadKey((k) => k + 1);
+  if (loading) {
+    return (
+      <div className="loading-state" data-testid="app-loading">
+        Memuat LAGO BALI...
+      </div>
+    );
+  }
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
 
   return (
     <Layout
-      active={active}
-      onNavigate={(id) => {
-        setActive(id);
-        bumpRefresh();
-      }}
       outletCode={outletCode}
       onOutletChange={setOutletCode}
       outlets={outlets}
-      pendingPo={dashSummary.pending_po}
+      pendingPo={pendingPo}
     >
-      {active === "dashboard" && (
-        <Dashboard onNavigate={setActive} onAddItem={() => setActive("inventory")} />
-      )}
-      {active === "inventory" && <InventoryPage outlet={outletCode} />}
-      {active === "orders" && <OrdersPage />}
-      {active === "receiving" && <ReceivingPage />}
-      {active === "issues" && <IssuesPage />}
-      {active === "opname" && <OpnamePage />}
-      {active === "hpp" && <HPPPage />}
-      {active === "revenue" && <RevenuePage />}
-      {active === "flash" && <FlashCostPage />}
+      <Routes>
+        <Route path="/dashboard" element={<Dashboard onNavigateTo={() => {}} />} />
+        <Route path="/inventory" element={<InventoryPage outlet={outletCode} />} />
+        <Route path="/suppliers" element={<SuppliersPage />} />
+        <Route path="/orders" element={<OrdersPage />} />
+        <Route path="/receiving" element={<ReceivingPage />} />
+        <Route path="/issues" element={<IssuesPage />} />
+        <Route path="/opname" element={<OpnamePage />} />
+        <Route path="/hpp" element={<HPPPage />} />
+        <Route path="/revenue" element={<RevenuePage />} />
+        <Route path="/flash" element={<FlashCostPage />} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
     </Layout>
   );
 }
 
-function Gate() {
+function LoginRoute() {
   const { user, loading } = useAuth();
-  if (loading) {
-    return (
-      <div className="loading-state" data-testid="app-loading">
-        Memuat HINTO...
-      </div>
-    );
+  const location = useLocation();
+  if (loading) return <div className="loading-state">Memuat...</div>;
+  if (user) {
+    const from = location.state?.from?.pathname || "/dashboard";
+    return <Navigate to={from} replace />;
   }
-  return user ? <Shell /> : <Login />;
+  return <Login />;
 }
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Toaster position="top-right" richColors />
-      <Gate />
-    </AuthProvider>
+    <BrowserRouter>
+      <AuthProvider>
+        <Toaster position="top-right" richColors />
+        <Routes>
+          <Route path="/login" element={<LoginRoute />} />
+          <Route path="/*" element={<ProtectedShell />} />
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }

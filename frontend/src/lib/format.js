@@ -11,6 +11,15 @@ export const outletNames = {
   kitchen: "Kitchen",
   bar: "Bar",
   housekeeping: "Housekeeping",
+  dusk: "Dusk",
+  dawn: "Dawn",
+  pontoon: "Pontoon",
+  beach_house: "Beach House",
+  sundeck: "Sundeck",
+  firm: "Firm",
+  kitchen_dusk: "Kitchen Dusk",
+  kitchen_boh: "Kitchen BOH",
+  office: "Office",
 };
 
 export const roleLabels = {
@@ -22,8 +31,9 @@ export const roleLabels = {
 
 export const statusLabels = {
   waiting_approval: "Menunggu approval",
-  approved: "Disetujui",
-  received: "Diterima",
+  approved: "Disetujui · siap terima",
+  partial: "Diterima sebagian",
+  received: "Ditutup (received penuh)",
   cancelled: "Dibatalkan",
   draft: "Draft",
 };
@@ -31,6 +41,7 @@ export const statusLabels = {
 export const statusTone = {
   waiting_approval: "amber",
   approved: "blue",
+  partial: "amber",
   received: "green",
   cancelled: "neutral",
   draft: "amber",

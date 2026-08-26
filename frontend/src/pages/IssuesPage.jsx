@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Plus, Upload, Check, Trash2 } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { money, outletNames, formatDate } from "../lib/format";
+import { useOutlets } from "../lib/useOutlets";
 import { PageIntro, PanelHead, Modal, Field, SelectField } from "../components/UI";
 import { BulkUploadDialog } from "../components/BulkUpload";
 import { useAuth } from "../context/AuthContext";
@@ -18,6 +19,7 @@ const TEMPLATE = {
 
 export default function IssuesPage() {
   const { user } = useAuth();
+  const outletsList = useOutlets();
   const [list, setList] = useState([]);
   const [items, setItems] = useState([]);
   const [modal, setModal] = useState(null);
@@ -147,8 +149,22 @@ export default function IssuesPage() {
       {modal === "new" && (
         <Modal title="Catat barang keluar" onClose={() => setModal(null)}>
           <form className="form-grid" onSubmit={submit}>
-            <SelectField label="Dari outlet" testid="issue-from-select" value={fromOutlet} onChange={setFromOutlet} options={[{ value: "main_wh", label: "Gudang utama" }, { value: "kitchen", label: "Kitchen" }, { value: "bar", label: "Bar" }]} />
-            <SelectField label="Ke outlet" testid="issue-to-select" value={toOutlet} onChange={setToOutlet} options={[{ value: "kitchen", label: "Kitchen" }, { value: "bar", label: "Bar" }, { value: "housekeeping", label: "Housekeeping" }]} />
+            <SelectField
+              label="Dari outlet"
+              testid="issue-from-select"
+              value={fromOutlet}
+              onChange={setFromOutlet}
+              options={outletsList.map((o) => ({ value: o.code, label: o.name }))}
+            />
+            <SelectField
+              label="Ke outlet"
+              testid="issue-to-select"
+              value={toOutlet}
+              onChange={setToOutlet}
+              options={outletsList
+                .filter((o) => o.type !== "warehouse")
+                .map((o) => ({ value: o.code, label: o.name }))}
+            />
             <label className="field" style={{ gridColumn: "1/-1" }}>
               <span>Catatan</span>
               <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Dinner service, event, dsb" />

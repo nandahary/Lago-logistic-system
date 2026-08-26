@@ -30,8 +30,8 @@ export default function ReceivingPage() {
   const loadList = () => api.get("/receivings").then((r) => setList(r.data));
   const loadPOs = () =>
     api.get("/orders").then((r) => {
-      // Only allow POs with status "approved" (not yet received)
-      setApprovedPOs(r.data.filter((o) => o.status === "approved"));
+      // Allow both approved (not yet received) and partially-received POs
+      setApprovedPOs(r.data.filter((o) => o.status === "approved" || o.status === "partial"));
     });
 
   useEffect(() => {
@@ -55,13 +55,19 @@ export default function ReceivingPage() {
     setSelectedPO(po);
     if (po) {
       setLines(
-        po.items.map((l) => ({
-          item_id: l.item_id,
-          name: l.name,
-          unit: l.unit,
-          qty: String(l.qty),
-          price: String(l.price),
-        }))
+        po.items.map((l) => {
+          const remaining = Number(l.qty) - Number(l.received_qty || 0);
+          return {
+            item_id: l.item_id,
+            name: l.name,
+            unit: l.unit,
+            ordered: l.qty,
+            received: l.received_qty || 0,
+            remaining,
+            qty: String(remaining),
+            price: String(l.price),
+          };
+        }).filter((l) => l.remaining > 0)
       );
     } else {
       setLines([]);
@@ -234,17 +240,27 @@ export default function ReceivingPage() {
                   </div>
                 </div>
 
-                <p className="eyebrow" style={{ marginTop: 18 }}>Baris item — sesuaikan qty jika terjadi kekurangan</p>
+                <p className="eyebrow" style={{ marginTop: 18 }}>
+                  Baris item — sisa yang belum diterima ditampilkan; sesuaikan bila jumlah aktual berbeda
+                </p>
                 <div className="line-editor">
+                  {lines.length === 0 && (
+                    <div className="empty-hint">Semua item pada PO ini sudah diterima penuh.</div>
+                  )}
                   {lines.map((l, idx) => (
-                    <div className="line-row" key={idx}>
+                    <div className="line-row partial" key={idx}>
                       <div className="line-item-label">
                         <strong>{l.name}</strong>
-                        <small>{l.unit}</small>
+                        <small>
+                          Order {l.ordered} · Sudah diterima {l.received} · Sisa <b>{l.remaining}</b> {l.unit}
+                        </small>
                       </div>
                       <input
                         data-testid={`grn-line-qty-${idx}`}
                         type="number"
+                        max={l.remaining}
+                        min="0"
+                        step="0.01"
                         value={l.qty}
                         onChange={(e) => updateLine(idx, "qty", e.target.value)}
                         placeholder="Qty diterima"

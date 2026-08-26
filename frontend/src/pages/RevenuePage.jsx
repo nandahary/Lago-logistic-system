@@ -3,11 +3,13 @@ import { toast } from "sonner";
 import { Plus, Check } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { money, outletNames, formatDate, today } from "../lib/format";
+import { useOutlets } from "../lib/useOutlets";
 import { PageIntro, PanelHead, Modal, Field, SelectField } from "../components/UI";
 import { useAuth } from "../context/AuthContext";
 
 export default function RevenuePage() {
   const { user } = useAuth();
+  const outletsList = useOutlets();
   const [list, setList] = useState([]);
   const [modal, setModal] = useState(false);
   const [date, setDate] = useState(today());
@@ -88,7 +90,15 @@ export default function RevenuePage() {
         <Modal title="Input revenue" onClose={() => setModal(false)}>
           <form className="form-grid" onSubmit={submit}>
             <Field label="Tanggal" testid="revenue-date-input" type="date" value={date} onChange={setDate} />
-            <SelectField label="Outlet" testid="revenue-outlet-select" value={outletCode} onChange={setOutletCode} options={[{ value: "kitchen", label: "Kitchen" }, { value: "bar", label: "Bar" }, { value: "housekeeping", label: "Housekeeping" }]} />
+            <SelectField
+              label="Outlet"
+              testid="revenue-outlet-select"
+              value={outletCode}
+              onChange={setOutletCode}
+              options={outletsList
+                .filter((o) => o.type !== "warehouse")
+                .map((o) => ({ value: o.code, label: o.name }))}
+            />
             <Field label="Amount (IDR)" testid="revenue-amount-input" type="number" value={amount} onChange={setAmount} />
             <div className="form-actions">
               <button type="button" className="secondary-button" onClick={() => setModal(false)}>Batal</button>

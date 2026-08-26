@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Plus, Upload, Trash2, Check, X } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { money, outletNames, statusLabels, statusTone, formatDate } from "../lib/format";
+import { useOutlets } from "../lib/useOutlets";
 import { PageIntro, PanelHead, Modal, Field, SelectField, Badge } from "../components/UI";
 import { BulkUploadDialog } from "../components/BulkUpload";
 import { useAuth } from "../context/AuthContext";
@@ -18,9 +19,12 @@ const TEMPLATE = {
 
 export default function OrdersPage() {
   const { user } = useAuth();
+  const outletsList = useOutlets();
   const [orders, setOrders] = useState([]);
   const [items, setItems] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
   const [modal, setModal] = useState(null); // "new" | "upload"
+  const [supplierId, setSupplierId] = useState("");
   const [supplier, setSupplier] = useState("");
   const [outletCode, setOutletCode] = useState("kitchen");
   const [notes, setNotes] = useState("");
@@ -31,17 +35,25 @@ export default function OrdersPage() {
   useEffect(() => {
     load();
     api.get("/items").then((r) => setItems(r.data));
+    api.get("/suppliers").then((r) => setSuppliers(r.data));
   }, []);
 
   const canCreate = ["admin", "purchasing"].includes(user?.role);
   const canApprove = ["admin", "finance"].includes(user?.role);
 
   const openNew = () => {
+    setSupplierId("");
     setSupplier("");
     setOutletCode("kitchen");
     setNotes("");
     setLines([{ item_id: "", qty: "1", price: "0" }]);
     setModal("new");
+  };
+
+  const onPickSupplier = (id) => {
+    setSupplierId(id);
+    const s = suppliers.find((x) => x.id === id);
+    if (s) setSupplier(s.name);
   };
 
   const addLine = () => setLines([...lines, { item_id: "", qty: "1", price: "0" }]);
@@ -162,43 +174,53 @@ export default function OrdersPage() {
               {orders.length === 0 && (
                 <tr><td colSpan={8} style={{ textAlign: "center", padding: 40 }}>Belum ada PO.</td></tr>
               )}
-              {orders.map((o) => (
-                <tr key={o.id} data-testid={`po-row-${o.id}`}>
-                  <td>
-                    <strong>{o.po_number}</strong>
-                  </td>
-                  <td>{o.supplier}</td>
-                  <td>{outletNames[o.outlet_code] || o.outlet_code}</td>
-                  <td>
-                    {o.items.length} baris · {o.items.reduce((s, l) => s + l.qty, 0)} qty
-                  </td>
-                  <td><strong>{money(o.total)}</strong></td>
-                  <td>
-                    <Badge tone={statusTone[o.status]}>{statusLabels[o.status] || o.status}</Badge>
-                  </td>
-                  <td><small>{formatDate(o.created_at)}</small></td>
-                  <td>
-                    {o.status === "waiting_approval" && canApprove && (
-                      <button
-                        data-testid={`approve-${o.id}`}
-                        className="small-button success"
-                        onClick={() => approve(o.id)}
-                      >
-                        <Check size={12} /> Approve
-                      </button>
-                    )}
-                    {o.status === "waiting_approval" && canCreate && (
-                      <button
-                        className="small-button"
-                        style={{ marginLeft: 6 }}
-                        onClick={() => cancel(o.id)}
-                      >
-                        <X size={12} /> Batal
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {orders.map((o) => {
+                const totalQty = o.items.reduce((s, l) => s + Number(l.qty), 0);
+                const recvQty = o.items.reduce((s, l) => s + Number(l.received_qty || 0), 0);
+                const pct = totalQty > 0 ? Math.round((recvQty / totalQty) * 100) : 0;
+                return (
+                  <tr key={o.id} data-testid={`po-row-${o.id}`}>
+                    <td>
+                      <strong>{o.po_number}</strong>
+                    </td>
+                    <td>{o.supplier}</td>
+                    <td>{outletNames[o.outlet_code] || o.outlet_code}</td>
+                    <td>
+                      {o.items.length} baris
+                      {o.status !== "waiting_approval" && o.status !== "cancelled" && (
+                        <small>
+                          Diterima: {recvQty}/{totalQty} ({pct}%)
+                        </small>
+                      )}
+                    </td>
+                    <td><strong>{money(o.total)}</strong></td>
+                    <td>
+                      <Badge tone={statusTone[o.status]}>{statusLabels[o.status] || o.status}</Badge>
+                    </td>
+                    <td><small>{formatDate(o.created_at)}</small></td>
+                    <td>
+                      {o.status === "waiting_approval" && canApprove && (
+                        <button
+                          data-testid={`approve-${o.id}`}
+                          className="small-button success"
+                          onClick={() => approve(o.id)}
+                        >
+                          <Check size={12} /> Approve
+                        </button>
+                      )}
+                      {o.status === "waiting_approval" && canCreate && (
+                        <button
+                          className="small-button"
+                          style={{ marginLeft: 6 }}
+                          onClick={() => cancel(o.id)}
+                        >
+                          <X size={12} /> Batal
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -207,8 +229,29 @@ export default function OrdersPage() {
       {modal === "new" && (
         <Modal title="Buat purchase order" onClose={() => setModal(null)}>
           <form className="form-grid" onSubmit={submit}>
-            <Field label="Supplier" testid="po-supplier-input" value={supplier} onChange={setSupplier} placeholder="PT Boga Utama" />
-            <SelectField label="Outlet tujuan" testid="po-outlet-select" value={outletCode} onChange={setOutletCode} options={[{ value: "main_wh", label: "Gudang utama" }, { value: "kitchen", label: "Kitchen" }, { value: "bar", label: "Bar" }, { value: "housekeeping", label: "Housekeeping" }]} />
+            <label className="field">
+              <span>Supplier</span>
+              <select
+                data-testid="po-supplier-select"
+                value={supplierId}
+                onChange={(e) => onPickSupplier(e.target.value)}
+              >
+                <option value="">-- Pilih dari katalog --</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.code}) · lead {s.lead_time_days}d
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Field label="Atau nama supplier custom" testid="po-supplier-input" value={supplier} onChange={setSupplier} placeholder="PT Boga Utama" />
+            <SelectField
+              label="Outlet tujuan"
+              testid="po-outlet-select"
+              value={outletCode}
+              onChange={setOutletCode}
+              options={outletsList.map((o) => ({ value: o.code, label: o.name }))}
+            />
             <label className="field" style={{ gridColumn: "1/-1" }}>
               <span>Catatan (opsional)</span>
               <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Restock mingguan..." />

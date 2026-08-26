@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Plus, Search, Settings2, Upload, Check } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { money, outletNames } from "../lib/format";
+import { useOutlets } from "../lib/useOutlets";
 import { PageIntro, Modal, Field, SelectField, Badge } from "../components/UI";
 import { BulkUploadDialog } from "../components/BulkUpload";
 
@@ -15,6 +16,7 @@ const ITEMS_TEMPLATE = {
 };
 
 export default function InventoryPage({ outlet }) {
+  const outletsList = useOutlets();
   const [items, setItems] = useState([]);
   const [search, setSearch] = useState("");
   const [outlets, setOutlets] = useState([]);
@@ -159,7 +161,13 @@ export default function InventoryPage({ outlet }) {
             <Field label="Kode SKU (opsional)" testid="item-sku-input" value={form.sku || ""} onChange={(v) => setForm({ ...form, sku: v })} placeholder="Auto-generate jika kosong" />
             <Field label="Supplier utama" testid="item-supplier-input" value={form.supplier} onChange={(v) => setForm({ ...form, supplier: v })} placeholder="Nama supplier" />
             <SelectField label="Kategori" testid="item-category-select" value={form.category} onChange={(v) => setForm({ ...form, category: v })} options={["Protein", "Dry goods", "Beverage", "Dairy", "Amenities", "Vegetable", "Other"]} />
-            <SelectField label="Outlet" testid="item-outlet-select" value={form.outlet_code} onChange={(v) => setForm({ ...form, outlet_code: v })} options={[{ value: "main_wh", label: "Gudang utama" }, { value: "kitchen", label: "Kitchen" }, { value: "bar", label: "Bar" }, { value: "housekeeping", label: "Housekeeping" }]} />
+            <SelectField
+              label="Outlet"
+              testid="item-outlet-select"
+              value={form.outlet_code}
+              onChange={(v) => setForm({ ...form, outlet_code: v })}
+              options={outletsList.map((o) => ({ value: o.code, label: o.name }))}
+            />
             <SelectField label="Satuan" testid="item-unit-select" value={form.unit} onChange={(v) => setForm({ ...form, unit: v })} options={["kg", "gram", "liter", "ml", "pcs", "carton", "box"]} />
             <Field label="Stok awal" testid="item-stock-input" type="number" value={form.stock} onChange={(v) => setForm({ ...form, stock: v })} />
             <Field label="Minimum stok" testid="item-min-input" type="number" value={form.min_stock} onChange={(v) => setForm({ ...form, min_stock: v })} />

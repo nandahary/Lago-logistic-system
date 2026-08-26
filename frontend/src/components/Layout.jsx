@@ -1,23 +1,26 @@
 import React from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { roleLabels } from "../lib/format";
-import { Bell, Menu, LogOut, X, LayoutDashboard, Box, ShoppingCart, Truck, ChevronRight, ClipboardCheck, Calculator, Flame, Coins } from "lucide-react";
+import {
+  Bell, Menu, LogOut, X, LayoutDashboard, Box, ShoppingCart, Truck, ChevronRight,
+  ClipboardCheck, Calculator, Flame, Coins, Users,
+} from "lucide-react";
 
 export const NAV = [
-  ["dashboard", "Ringkasan", LayoutDashboard],
-  ["inventory", "Master barang", Box],
-  ["orders", "Purchase order", ShoppingCart],
-  ["receiving", "Penerimaan", Truck],
-  ["issues", "Barang keluar", ChevronRight],
-  ["opname", "Stock opname", ClipboardCheck],
-  ["hpp", "HPP & resep", Calculator],
-  ["revenue", "Revenue harian", Coins],
-  ["flash", "Flash cost", Flame],
+  ["/dashboard", "Ringkasan", LayoutDashboard],
+  ["/inventory", "Master barang", Box],
+  ["/suppliers", "Supplier", Users],
+  ["/orders", "Purchase order", ShoppingCart],
+  ["/receiving", "Penerimaan", Truck],
+  ["/issues", "Barang keluar", ChevronRight],
+  ["/opname", "Stock opname", ClipboardCheck],
+  ["/hpp", "HPP & resep", Calculator],
+  ["/revenue", "Revenue harian", Coins],
+  ["/flash", "Flash cost", Flame],
 ];
 
 export default function Layout({
-  active,
-  onNavigate,
   outletCode,
   onOutletChange,
   outlets,
@@ -25,14 +28,23 @@ export default function Layout({
   children,
 }) {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [open, setOpen] = React.useState(false);
-  const title = NAV.find((n) => n[0] === active)?.[1] || "Ringkasan";
+  const active = NAV.find(([p]) => location.pathname.startsWith(p));
+  const title = active?.[1] || "Ringkasan";
+  const activeId = active ? active[0].slice(1) : "dashboard";
   const initials = (user?.name || "?")
     .split(" ")
     .map((w) => w[0])
     .slice(0, 2)
     .join("")
     .toUpperCase();
+
+  const handleLogout = () => {
+    logout();
+    navigate("/login", { replace: true });
+  };
 
   return (
     <div className="app-shell">
@@ -53,20 +65,18 @@ export default function Layout({
         </div>
         <div className="nav-label">Workspace</div>
         <nav>
-          {NAV.map(([id, label, Icon]) => (
-            <button
-              data-testid={`nav-${id}`}
-              key={id}
-              className={active === id ? "nav-item active" : "nav-item"}
-              onClick={() => {
-                onNavigate(id);
-                setOpen(false);
-              }}
+          {NAV.map(([path, label, Icon]) => (
+            <NavLink
+              to={path}
+              key={path}
+              data-testid={`nav-${path.slice(1)}`}
+              className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}
+              onClick={() => setOpen(false)}
             >
               <Icon size={17} />
               <span>{label}</span>
-              {id === "orders" && pendingPo > 0 && <em>{pendingPo}</em>}
-            </button>
+              {path === "/orders" && pendingPo > 0 && <em>{pendingPo}</em>}
+            </NavLink>
           ))}
         </nav>
         <div className="sidebar-footer">
@@ -77,7 +87,7 @@ export default function Layout({
           <button
             data-testid="logout-button"
             className="chip small"
-            onClick={logout}
+            onClick={handleLogout}
             style={{ marginTop: 12 }}
           >
             <LogOut size={12} /> Keluar
@@ -105,7 +115,7 @@ export default function Layout({
           <div className="crumb">
             <span>Lago Bali</span>
             <ChevronRight size={14} />
-            <strong>{title}</strong>
+            <strong data-testid="page-title">{title}</strong>
           </div>
           <div className="top-actions">
             <label className="select-wrap">
@@ -138,7 +148,7 @@ export default function Layout({
             </div>
           </div>
         </header>
-        <div className="content">{children}</div>
+        <div className="content" data-active-page={activeId}>{children}</div>
       </main>
     </div>
   );

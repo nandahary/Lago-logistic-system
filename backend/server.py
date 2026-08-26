@@ -139,6 +139,29 @@ class OutletIn(BaseModel):
     type: str  # warehouse | kitchen | bar | housekeeping
 
 
+class SupplierIn(BaseModel):
+    name: str
+    code: Optional[str] = None
+    contact_person: Optional[str] = ""
+    phone: Optional[str] = ""
+    email: Optional[str] = ""
+    address: Optional[str] = ""
+    lead_time_days: Optional[int] = 0
+    payment_terms: Optional[str] = ""
+    notes: Optional[str] = ""
+
+
+class SupplierUpdateIn(BaseModel):
+    name: Optional[str] = None
+    contact_person: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    lead_time_days: Optional[int] = None
+    payment_terms: Optional[str] = None
+    notes: Optional[str] = None
+
+
 class ItemIn(BaseModel):
     sku: Optional[str] = None
     name: str
@@ -288,6 +311,69 @@ async def create_outlet(payload: OutletIn, user: dict = Depends(require_roles("a
 
 
 # ==============================================================================
+# Suppliers (Catalog)
+# ==============================================================================
+async def next_supplier_code() -> str:
+    count = await db.suppliers.count_documents({})
+    return f"SUP-{count + 1:04d}"
+
+
+@api.get("/suppliers")
+async def list_suppliers(
+    search: Optional[str] = None, user: dict = Depends(get_current_user)
+):
+    query: Dict[str, Any] = {}
+    if search:
+        query["$or"] = [
+            {"name": {"$regex": search, "$options": "i"}},
+            {"code": {"$regex": search, "$options": "i"}},
+        ]
+    docs = await db.suppliers.find(query).sort("name", 1).to_list(500)
+    return [serialize_doc(d) for d in docs]
+
+
+@api.post("/suppliers")
+async def create_supplier(
+    payload: SupplierIn, user: dict = Depends(require_roles("admin", "purchasing"))
+):
+    code = payload.code or await next_supplier_code()
+    if await db.suppliers.find_one({"code": code}):
+        raise HTTPException(status_code=400, detail="Kode supplier sudah ada")
+    doc = payload.model_dump()
+    doc["code"] = code
+    doc["created_at"] = iso(now_utc())
+    doc["updated_at"] = iso(now_utc())
+    res = await db.suppliers.insert_one(doc)
+    doc["_id"] = res.inserted_id
+    return serialize_doc(doc)
+
+
+@api.patch("/suppliers/{supplier_id}")
+async def update_supplier(
+    supplier_id: str,
+    payload: SupplierUpdateIn,
+    user: dict = Depends(require_roles("admin", "purchasing")),
+):
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    updates["updated_at"] = iso(now_utc())
+    result = await db.suppliers.update_one({"_id": to_oid(supplier_id)}, {"$set": updates})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Supplier tidak ditemukan")
+    doc = await db.suppliers.find_one({"_id": to_oid(supplier_id)})
+    return serialize_doc(doc)
+
+
+@api.delete("/suppliers/{supplier_id}")
+async def delete_supplier(
+    supplier_id: str, user: dict = Depends(require_roles("admin"))
+):
+    result = await db.suppliers.delete_one({"_id": to_oid(supplier_id)})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Supplier tidak ditemukan")
+    return {"deleted": True}
+
+
+# ==============================================================================
 # Items (Master Barang)
 # ==============================================================================
 async def next_sku() -> str:
@@ -376,7 +462,9 @@ async def create_order(
         "po_number": await next_po_number(),
         "supplier": payload.supplier,
         "outlet_code": payload.outlet_code,
-        "items": [line.model_dump() for line in payload.items],
+        "items": [
+            {**line.model_dump(), "received_qty": 0} for line in payload.items
+        ],
         "total": total,
         "status": "waiting_approval",
         "notes": payload.notes,
@@ -462,34 +550,67 @@ async def create_receiving(
     po = await db.purchase_orders.find_one({"_id": to_oid(payload.po_id)})
     if not po:
         raise HTTPException(status_code=404, detail="Purchase Order tidak ditemukan")
-    if po["status"] not in ("approved",):
+    # Support partial receive: allow status "approved" and "partial"
+    if po["status"] not in ("approved", "partial"):
         raise HTTPException(
             status_code=400,
             detail=f"PO {po['po_number']} tidak dapat diterima (status: {po['status']})",
         )
-    # Validasi item pada penerimaan harus ada di PO
-    po_item_ids = {str(it["item_id"]) for it in po["items"]}
+    # Build a map of PO lines by item_id
+    po_lines_by_item = {str(it["item_id"]): it for it in po["items"]}
+    # Validate every incoming line + qty ≤ remaining
     for line in payload.items:
-        if line.item_id not in po_item_ids:
+        po_line = po_lines_by_item.get(line.item_id)
+        if not po_line:
             raise HTTPException(
                 status_code=400,
                 detail=f"Item {line.name} tidak terdapat pada PO {po['po_number']}",
             )
+        remaining = float(po_line["qty"]) - float(po_line.get("received_qty", 0))
+        if line.qty <= 0:
+            raise HTTPException(status_code=400, detail=f"Qty {line.name} harus > 0")
+        if line.qty > remaining + 1e-9:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Qty {line.name} melebihi sisa PO ({remaining} {po_line.get('unit','')} tersedia)",
+            )
+
     total = 0.0
-    lines = []
+    lines_out = []
+    # Apply weighted average + update received_qty on PO line
     for line in payload.items:
         new_stock, new_cost = await apply_weighted_average(line.item_id, line.qty, line.price)
+        po_line = po_lines_by_item[line.item_id]
+        po_line["received_qty"] = float(po_line.get("received_qty", 0)) + float(line.qty)
         total += line.qty * line.price
-        lines.append(
+        lines_out.append(
             {**line.model_dump(), "new_stock": new_stock, "new_avg_cost": new_cost}
         )
+
+    # Determine new PO status: fully-received vs partial
+    fully_received = all(
+        float(l.get("received_qty", 0)) >= float(l["qty"]) - 1e-9 for l in po["items"]
+    )
+    new_status = "received" if fully_received else "partial"
+    await db.purchase_orders.update_one(
+        {"_id": po["_id"]},
+        {
+            "$set": {
+                "items": po["items"],
+                "status": new_status,
+                "received_at": iso(now_utc()) if fully_received else po.get("received_at"),
+                "updated_at": iso(now_utc()),
+            }
+        },
+    )
+
     doc = {
         "grn_number": await next_grn_number(),
         "po_id": payload.po_id,
         "po_number": po["po_number"],
         "supplier": payload.supplier or po.get("supplier", ""),
         "outlet_code": payload.outlet_code,
-        "items": lines,
+        "items": lines_out,
         "total": total,
         "notes": payload.notes,
         "received_by": user["email"],
@@ -497,12 +618,6 @@ async def create_receiving(
     }
     res = await db.receivings.insert_one(doc)
     doc["_id"] = res.inserted_id
-
-    # Mark PO as received
-    await db.purchase_orders.update_one(
-        {"_id": to_oid(payload.po_id)},
-        {"$set": {"status": "received", "received_at": iso(now_utc())}},
-    )
     return serialize_doc(doc)
 
 
@@ -999,10 +1114,10 @@ async def receivings_bulk_upload(
             if not po:
                 errors.append(f"PO {po_number}: tidak ditemukan")
                 continue
-            if po["status"] not in ("approved",):
+            if po["status"] not in ("approved", "partial"):
                 errors.append(f"PO {po_number}: tidak dapat diterima (status {po['status']})")
                 continue
-            po_item_ids = {str(it["item_id"]): it for it in po["items"]}
+            po_lines_by_id = {str(it["item_id"]): it for it in po["items"]}
             po_skus = {}
             for it in po["items"]:
                 item_doc = await db.items.find_one({"_id": to_oid(str(it["item_id"]))})
@@ -1021,7 +1136,18 @@ async def receivings_bulk_upload(
                 item = await db.items.find_one({"_id": to_oid(item_id)})
                 qty = _num(row.get("qty"))
                 price = _num(row.get("price"), default=float(item.get("cost", 0)))
+                po_line = po_lines_by_id.get(item_id)
+                remaining = float(po_line["qty"]) - float(po_line.get("received_qty", 0))
+                if qty <= 0:
+                    errors.append(f"Baris {row['row']}: qty harus > 0")
+                    continue
+                if qty > remaining + 1e-9:
+                    errors.append(
+                        f"Baris {row['row']}: qty {qty} melebihi sisa PO {po_number} ({remaining} tersisa)"
+                    )
+                    continue
                 new_stock, new_cost = await apply_weighted_average(item_id, qty, price)
+                po_line["received_qty"] = float(po_line.get("received_qty", 0)) + qty
                 total += qty * price
                 lines.append(
                     {
@@ -1036,6 +1162,10 @@ async def receivings_bulk_upload(
                 )
             if not lines:
                 continue
+            fully_received = all(
+                float(l.get("received_qty", 0)) >= float(l["qty"]) - 1e-9 for l in po["items"]
+            )
+            new_status = "received" if fully_received else "partial"
             doc = {
                 "grn_number": await next_grn_number(),
                 "po_id": str(po["_id"]),
@@ -1051,7 +1181,14 @@ async def receivings_bulk_upload(
             await db.receivings.insert_one(doc)
             await db.purchase_orders.update_one(
                 {"_id": po["_id"]},
-                {"$set": {"status": "received", "received_at": iso(now_utc())}},
+                {
+                    "$set": {
+                        "items": po["items"],
+                        "status": new_status,
+                        "received_at": iso(now_utc()) if fully_received else po.get("received_at"),
+                        "updated_at": iso(now_utc()),
+                    }
+                },
             )
             created += 1
         except HTTPException as e:
@@ -1306,11 +1443,56 @@ async def seed_data():
         {"name": "Kitchen", "code": "kitchen", "type": "kitchen"},
         {"name": "Bar", "code": "bar", "type": "bar"},
         {"name": "Housekeeping", "code": "housekeeping", "type": "housekeeping"},
+        {"name": "Dusk", "code": "dusk", "type": "restaurant"},
+        {"name": "Dawn", "code": "dawn", "type": "restaurant"},
+        {"name": "Pontoon", "code": "pontoon", "type": "bar"},
+        {"name": "Beach House", "code": "beach_house", "type": "restaurant"},
+        {"name": "Sundeck", "code": "sundeck", "type": "bar"},
+        {"name": "Firm", "code": "firm", "type": "restaurant"},
+        {"name": "Kitchen Dusk", "code": "kitchen_dusk", "type": "kitchen"},
+        {"name": "Kitchen BOH", "code": "kitchen_boh", "type": "kitchen"},
+        {"name": "Office", "code": "office", "type": "office"},
     ]
     for o in outlets:
         await db.outlets.update_one(
             {"code": o["code"]},
             {"$setOnInsert": {**o, "created_at": iso(now_utc())}},
+            upsert=True,
+        )
+
+    # Suppliers
+    seed_suppliers = [
+        ("SUP-0001", "PT Boga Utama", "Bapak Andi", "0811-1111-001", "andi@bogautama.co.id", "Jl. Sunset Rd No. 88, Kuta, Bali", 2, "Net 14"),
+        ("SUP-0002", "CV Tani Makmur", "Ibu Sri", "0821-2222-002", "sri@tanimakmur.id", "Jl. Raya Denpasar-Gilimanuk KM 30, Tabanan", 3, "Net 7"),
+        ("SUP-0003", "PT Sinar Mas", "Bapak Tono", "0812-3333-003", "sales@sinarmas.co.id", "Jl. Bypass Ngurah Rai No. 12, Sanur", 1, "COD"),
+        ("SUP-0004", "PT Pernod Ricard", "Ms. Linda", "021-5555-004", "linda@pernodricard.com", "Sudirman Central Business District, Jakarta", 5, "Net 30"),
+        ("SUP-0005", "CV Amenity Bali", "Bapak Wayan", "0813-4444-005", "wayan@amenitybali.id", "Jl. Kartika Plaza No. 44, Legian", 3, "Net 14"),
+        ("SUP-0006", "PT Ocean Fresh", "Bapak Made", "0812-5555-006", "made@oceanfresh.co.id", "Pelabuhan Benoa, Denpasar", 1, "COD"),
+        ("SUP-0007", "PT Frisian Flag", "Ms. Rina", "021-6666-007", "rina@frisianflag.co.id", "Cikini, Jakarta Pusat", 4, "Net 30"),
+        ("SUP-0008", "PT Cellar Master", "Bapak Kevin", "0812-7777-008", "kevin@cellarmaster.id", "Petitenget, Kerobokan", 3, "Net 14"),
+        ("SUP-0009", "PT Textile Jaya", "Ibu Marina", "021-8888-009", "marina@textilejaya.co.id", "Kawasan Industri Tangerang", 7, "Net 30"),
+        ("SUP-0010", "PT Charoen Pokphand", "Bapak Bambang", "0812-9999-010", "bambang@charoen.co.id", "Jl. Diponegoro Denpasar", 1, "Net 7"),
+        ("SUP-0011", "CV Kebun Segar", "Bapak Ketut", "0821-1111-011", "ketut@kebunsegar.id", "Bedugul, Tabanan", 1, "COD"),
+        ("SUP-0012", "PT Kopi Bali", "Ibu Dewi", "0812-1212-012", "dewi@kopibali.co.id", "Ubud, Gianyar", 2, "Net 14"),
+    ]
+    for code, name, contact, phone, email, address, lead, terms in seed_suppliers:
+        await db.suppliers.update_one(
+            {"code": code},
+            {
+                "$setOnInsert": {
+                    "code": code,
+                    "name": name,
+                    "contact_person": contact,
+                    "phone": phone,
+                    "email": email,
+                    "address": address,
+                    "lead_time_days": lead,
+                    "payment_terms": terms,
+                    "notes": "",
+                    "created_at": iso(now_utc()),
+                    "updated_at": iso(now_utc()),
+                }
+            },
             upsert=True,
         )
 
@@ -1381,6 +1563,7 @@ async def seed_data():
 async def ensure_indexes():
     await db.users.create_index("email", unique=True)
     await db.outlets.create_index("code", unique=True)
+    await db.suppliers.create_index("code", unique=True)
     await db.items.create_index("sku", unique=True)
     await db.purchase_orders.create_index("po_number", unique=True)
     await db.receivings.create_index("grn_number", unique=True)

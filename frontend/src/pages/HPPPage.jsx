@@ -3,11 +3,13 @@ import { toast } from "sonner";
 import { Plus, Check, Trash2 } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { money, outletNames } from "../lib/format";
+import { useOutlets } from "../lib/useOutlets";
 import { PageIntro, PanelHead, Modal, Field, SelectField, Badge } from "../components/UI";
 import { useAuth } from "../context/AuthContext";
 
 export default function HPPPage() {
   const { user } = useAuth();
+  const outletsList = useOutlets();
   const [recipes, setRecipes] = useState([]);
   const [items, setItems] = useState([]);
   const [modal, setModal] = useState(null);
@@ -129,7 +131,15 @@ export default function HPPPage() {
         <Modal title="Tambah resep menu" onClose={() => setModal(null)}>
           <form className="form-grid" onSubmit={submit}>
             <Field label="Nama menu" testid="recipe-name-input" value={name} onChange={setName} placeholder="Beef tenderloin steak" />
-            <SelectField label="Outlet" testid="recipe-outlet-select" value={outletCode} onChange={setOutletCode} options={[{ value: "kitchen", label: "Kitchen" }, { value: "bar", label: "Bar" }]} />
+            <SelectField
+              label="Outlet"
+              testid="recipe-outlet-select"
+              value={outletCode}
+              onChange={setOutletCode}
+              options={outletsList
+                .filter((o) => ["kitchen", "bar", "restaurant"].includes(o.type))
+                .map((o) => ({ value: o.code, label: o.name }))}
+            />
             <Field label="Harga jual (IDR)" testid="recipe-price-input" type="number" value={sellingPrice} onChange={setSellingPrice} />
             <div style={{ gridColumn: "1/-1" }}>
               <p className="eyebrow">Bahan baku</p>

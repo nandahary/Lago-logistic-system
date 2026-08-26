@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { money, formatDate, outletNames } from "../lib/format";
 import { PageIntro, PanelHead, Badge } from "../components/UI";
@@ -39,7 +40,8 @@ const compactMoney = (v) => {
   return `Rp${n}`;
 };
 
-export default function Dashboard({ onNavigate, onAddItem }) {
+export default function Dashboard() {
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [ana, setAna] = useState(null);
 
@@ -70,7 +72,7 @@ export default function Dashboard({ onNavigate, onAddItem }) {
           <button
             data-testid="dashboard-primary-action"
             className="primary-button"
-            onClick={onAddItem}
+            onClick={() => navigate("/inventory")}
           >
             <Plus size={17} /> Tambah barang
           </button>
@@ -197,7 +199,7 @@ export default function Dashboard({ onNavigate, onAddItem }) {
             title="Perlu perhatian"
             detail="Stok berada di atau di bawah batas minimum"
             action="Buka master barang"
-            onAction={() => onNavigate("inventory")}
+            onAction={() => navigate("/inventory")}
           />
           <div className="attention-list">
             {data.low_stock_items.length === 0 && (
@@ -216,7 +218,7 @@ export default function Dashboard({ onNavigate, onAddItem }) {
                   <strong>{i.stock} {i.unit}</strong>
                   <span>min. {i.min_stock} {i.unit}</span>
                 </div>
-                <button className="small-button" onClick={() => onNavigate("orders")}>
+                <button className="small-button" onClick={() => navigate("/orders")}>
                   Buat PO <ChevronRight size={14} />
                 </button>
               </div>
