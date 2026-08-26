@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Upload, Check, Trash2, FileText } from "lucide-react";
+import { Plus, Upload, Check, Trash2, FileText, Printer } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { money, outletNames, formatDate } from "../lib/format";
 import { PageIntro, PanelHead, Modal, Field, Badge } from "../components/UI";
 import { BulkUploadDialog } from "../components/BulkUpload";
 import { useAuth } from "../context/AuthContext";
+import { printGRN } from "../lib/printDocs";
 
 const TEMPLATE = {
   headers: ["po_number", "item_sku", "qty", "price", "notes"],
@@ -176,11 +177,12 @@ export default function ReceivingPage() {
                 <th>Total</th>
                 <th>Diterima</th>
                 <th>Oleh</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {list.length === 0 && (
-                <tr><td colSpan={8} style={{ textAlign: "center", padding: 40 }}>Belum ada penerimaan.</td></tr>
+                <tr><td colSpan={9} style={{ textAlign: "center", padding: 40 }}>Belum ada penerimaan.</td></tr>
               )}
               {list.map((g) => (
                 <tr key={g.id} data-testid={`grn-row-${g.id}`}>
@@ -196,6 +198,16 @@ export default function ReceivingPage() {
                   <td><strong>{money(g.total)}</strong></td>
                   <td><small>{formatDate(g.received_at)}</small></td>
                   <td><small>{g.received_by}</small></td>
+                  <td>
+                    <button
+                      data-testid={`grn-print-${g.id}`}
+                      className="small-button"
+                      onClick={() => printGRN(g)}
+                      title="Cetak GRN"
+                    >
+                      <Printer size={12} /> Cetak
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

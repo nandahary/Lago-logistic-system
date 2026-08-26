@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Upload, Trash2, Check, X } from "lucide-react";
+import { Plus, Upload, Trash2, Check, X, Printer } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { money, outletNames, statusLabels, statusTone, formatDate } from "../lib/format";
 import { useOutlets } from "../lib/useOutlets";
 import { PageIntro, PanelHead, Modal, Field, SelectField, Badge } from "../components/UI";
 import { BulkUploadDialog } from "../components/BulkUpload";
 import { useAuth } from "../context/AuthContext";
+import { printPurchaseOrder } from "../lib/printDocs";
 
 const TEMPLATE = {
   headers: ["po_ref", "supplier", "outlet_code", "item_sku", "qty", "price", "notes"],
@@ -122,6 +123,11 @@ export default function OrdersPage() {
     }
   };
 
+  const printPO = (po) => {
+    const supplier = suppliers.find((s) => s.name === po.supplier);
+    printPurchaseOrder(po, supplier);
+  };
+
   const linesTotal = lines.reduce((s, l) => s + Number(l.qty || 0) * Number(l.price || 0), 0);
 
   return (
@@ -217,6 +223,15 @@ export default function OrdersPage() {
                           <X size={12} /> Batal
                         </button>
                       )}
+                      <button
+                        data-testid={`po-print-${o.id}`}
+                        className="small-button"
+                        style={{ marginLeft: 6 }}
+                        onClick={() => printPO(o)}
+                        title="Cetak PO"
+                      >
+                        <Printer size={12} /> Cetak
+                      </button>
                     </td>
                   </tr>
                 );
