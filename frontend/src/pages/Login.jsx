@@ -4,15 +4,15 @@ import { formatApiErrorDetail } from "../lib/api";
 import { toast } from "sonner";
 
 const demoAccounts = [
-  { label: "Admin", email: "admin@lagobali.com", password: "admin123" },
-  { label: "Purchasing", email: "purchasing@lagobali.com", password: "demo123" },
-  { label: "Warehouse", email: "warehouse@lagobali.com", password: "demo123" },
-  { label: "Finance", email: "finance@lagobali.com", password: "demo123" },
+  { label: "Admin", username: "admin", password: "admin123" },
+  { label: "Purchasing", username: "purchasing", password: "demo123" },
+  { label: "Warehouse", username: "warehouse", password: "demo123" },
+  { label: "Finance", username: "finance", password: "demo123" },
 ];
 
 export default function Login() {
   const { login } = useAuth();
-  const [email, setEmail] = useState("admin@lagobali.com");
+  const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("admin123");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -22,7 +22,7 @@ export default function Login() {
     setLoading(true);
     setError("");
     try {
-      const user = await login(email, password);
+      const user = await login(username, password);
       toast.success(`Welcome, ${user.name}`);
     } catch (err) {
       setError(formatApiErrorDetail(err.response?.data?.detail) || err.message);
@@ -32,7 +32,7 @@ export default function Login() {
   };
 
   const quickFill = (acc) => {
-    setEmail(acc.email);
+    setUsername(acc.username);
     setPassword(acc.password);
   };
 
@@ -67,13 +67,16 @@ export default function Login() {
           <h2>Welcome back</h2>
           <p className="subtitle">Use the demo accounts below for quick testing.</p>
           <label className="field">
-            <span>Email</span>
+            <span>Username</span>
             <input
-              data-testid="login-email-input"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              type="email"
-              autoComplete="email"
+              data-testid="login-username-input"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              type="text"
+              autoComplete="username"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
               required
             />
           </label>
@@ -106,7 +109,7 @@ export default function Login() {
             <div className="demo-grid">
               {demoAccounts.map((a) => (
                 <button
-                  key={a.email}
+                  key={a.username}
                   type="button"
                   data-testid={`demo-account-${a.label.toLowerCase()}`}
                   className="chip"

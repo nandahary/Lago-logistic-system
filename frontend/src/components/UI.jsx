@@ -48,7 +48,7 @@ export function Badge({ children, tone = "neutral" }) {
   );
 }
 
-export function Field({ label, testid, value, onChange, type = "text", placeholder, required }) {
+export function Field({ label, testid, value, onChange, type = "text", placeholder, required, disabled }) {
   return (
     <label className="field">
       <span>{label}</span>
@@ -58,6 +58,7 @@ export function Field({ label, testid, value, onChange, type = "text", placehold
         value={value}
         placeholder={placeholder}
         required={required}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
       />
     </label>

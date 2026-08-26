@@ -147,7 +147,7 @@ export default function Layout({
               <Bell size={18} />
               <i />
             </button>
-            <div className="avatar" data-testid="current-user-avatar" title={user?.email}>
+            <div className="avatar" data-testid="current-user-avatar" title={user?.username}>
               {initials}
             </div>
           </div>

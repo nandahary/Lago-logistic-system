@@ -40,7 +40,7 @@ export default function UsersPage() {
   const openEdit = (u) => {
     setForm({
       id: u.id,
-      email: u.email,
+      username: u.username,
       name: u.name,
       role: u.role,
       password: "",
@@ -51,20 +51,20 @@ export default function UsersPage() {
   const submit = async (e) => {
     e.preventDefault();
     if (!form.name || !form.role) return toast.error("Name and role are required");
-    if (modal.mode === "new" && (!form.email || !form.password))
-      return toast.error("Email and password are required");
+    if (modal.mode === "new" && (!form.username || !form.password))
+      return toast.error("Username and password are required");
     if (modal.mode === "new" && form.password.length < 6)
       return toast.error("Password must be at least 6 characters");
     setSaving(true);
     try {
       if (modal.mode === "new") {
         await api.post("/auth/register", {
-          email: form.email,
+          username: form.username,
           password: form.password,
           name: form.name,
           role: form.role,
         });
-        toast.success(`User ${form.email} added`);
+        toast.success(`User ${form.username} added`);
       } else {
         const payload = { name: form.name, role: form.role };
         if (form.password) payload.password = form.password;
@@ -81,7 +81,7 @@ export default function UsersPage() {
   };
 
   const remove = async (u) => {
-    if (!window.confirm(`Delete user ${u.email}?`)) return;
+    if (!window.confirm(`Delete user ${u.username}?`)) return;
     try {
       await api.delete(`/users/${u.id}`);
       toast.success("User deleted");
@@ -95,7 +95,7 @@ export default function UsersPage() {
     const q = search.toLowerCase();
     if (!q) return true;
     return (
-      u.email.toLowerCase().includes(q) ||
+      (u.username || "").toLowerCase().includes(q) ||
       (u.name || "").toLowerCase().includes(q) ||
       u.role.toLowerCase().includes(q)
     );
@@ -150,7 +150,7 @@ export default function UsersPage() {
               data-testid="user-search-input"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name, email, or role..."
+              placeholder="Search by name, username, or role..."
             />
           </div>
         </div>
@@ -159,7 +159,7 @@ export default function UsersPage() {
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Email</th>
+                <th>Username</th>
                 <th>Role</th>
                 <th>Created</th>
                 <th style={{ textAlign: "right" }}>Actions</th>
@@ -179,7 +179,7 @@ export default function UsersPage() {
                     <strong>{u.name}</strong>
                     {u.id === current?.id && <small>(You)</small>}
                   </td>
-                  <td>{u.email}</td>
+                  <td><code>{u.username}</code></td>
                   <td>
                     <Badge tone={roleTone[u.role] || "neutral"}>
                       <Shield size={10} style={{ marginRight: 4, verticalAlign: "middle" }} />
@@ -229,12 +229,13 @@ export default function UsersPage() {
               placeholder="User name"
             />
             <Field
-              label={modal.mode === "edit" ? "Email (cannot be changed)" : "Email"}
-              testid="user-email-input"
-              type="email"
-              value={form.email}
-              onChange={(v) => setForm({ ...form, email: v })}
-              placeholder="user@lagobali.id"
+              label={modal.mode === "edit" ? "Username (cannot be changed)" : "Username"}
+              testid="user-username-input"
+              type="text"
+              value={form.username}
+              onChange={(v) => setForm({ ...form, username: v })}
+              placeholder="e.g. rina, budi.k, ops01"
+              disabled={modal.mode === "edit"}
             />
             <SelectField
               label="Role"
@@ -282,7 +283,7 @@ export default function UsersPage() {
 
 function defaultForm() {
   return {
-    email: "",
+    username: "",
     name: "",
     role: "warehouse",
     password: "",

@@ -6,6 +6,7 @@ load_dotenv(ROOT_DIR / ".env")
 
 import os
 import io
+import re
 import csv
 import logging
 import bcrypt
@@ -17,7 +18,7 @@ from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, UploadF
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, field_validator
 
 # ==============================================================================
 # Config
@@ -61,15 +62,31 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
-def create_access_token(user_id: str, email: str, role: str) -> str:
+def create_access_token(user_id: str, username: str, role: str) -> str:
     payload = {
         "sub": user_id,
-        "email": email,
+        "username": username,
         "role": role,
         "exp": now_utc() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS),
         "type": "access",
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+# Username: 3–30 chars, letters/digits/dots/underscores; case-insensitive stored lowercase.
+USERNAME_RE = re.compile(r"^[a-zA-Z0-9._]{3,30}$")
+
+
+def normalize_username(raw: str) -> str:
+    if not raw or not isinstance(raw, str):
+        raise HTTPException(status_code=400, detail="Username is required")
+    u = raw.strip().lower()
+    if not USERNAME_RE.match(u):
+        raise HTTPException(
+            status_code=400,
+            detail="Username must be 3–30 chars: letters, digits, dot, or underscore",
+        )
+    return u
 
 
 def serialize_doc(doc: dict) -> dict:
@@ -122,12 +139,12 @@ def require_roles(*roles: str):
 # Pydantic Schemas (input)
 # ==============================================================================
 class LoginIn(BaseModel):
-    email: EmailStr
+    username: str
     password: str
 
 
 class UserCreateIn(BaseModel):
-    email: EmailStr
+    username: str
     password: str
     name: str
     role: str  # admin | purchasing | warehouse | finance
@@ -252,11 +269,11 @@ class RevenueIn(BaseModel):
 # ==============================================================================
 @api.post("/auth/login")
 async def login(payload: LoginIn):
-    email = payload.email.lower().strip()
-    user = await db.users.find_one({"email": email})
+    username = normalize_username(payload.username)
+    user = await db.users.find_one({"username": username})
     if not user or not verify_password(payload.password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    token = create_access_token(str(user["_id"]), user["email"], user["role"])
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    token = create_access_token(str(user["_id"]), user["username"], user["role"])
     return {"token": token, "user": serialize_doc(user)}
 
 
@@ -267,13 +284,15 @@ async def me(user: dict = Depends(get_current_user)):
 
 @api.post("/auth/register")
 async def register(payload: UserCreateIn, user: dict = Depends(require_roles("admin"))):
-    email = payload.email.lower().strip()
-    if await db.users.find_one({"email": email}):
-        raise HTTPException(status_code=400, detail="Email already registered")
+    username = normalize_username(payload.username)
+    if await db.users.find_one({"username": username}):
+        raise HTTPException(status_code=400, detail="Username already registered")
     if payload.role not in {"admin", "purchasing", "warehouse", "finance"}:
         raise HTTPException(status_code=400, detail="Invalid role")
+    if not payload.password or len(payload.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     doc = {
-        "email": email,
+        "username": username,
         "password_hash": hash_password(payload.password),
         "name": payload.name,
         "role": payload.role,
@@ -644,7 +663,7 @@ async def create_order(
         "total": total,
         "status": "waiting_approval",
         "notes": payload.notes,
-        "created_by": user["email"],
+        "created_by": user["username"],
         "created_at": iso(now_utc()),
         "approved_by": None,
         "approved_at": None,
@@ -663,7 +682,7 @@ async def approve_order(order_id: str, user: dict = Depends(require_roles("finan
         raise HTTPException(status_code=400, detail="PO is not in waiting approval status")
     await db.purchase_orders.update_one(
         {"_id": to_oid(order_id)},
-        {"$set": {"status": "approved", "approved_by": user["email"], "approved_at": iso(now_utc())}},
+        {"$set": {"status": "approved", "approved_by": user["username"], "approved_at": iso(now_utc())}},
     )
     doc = await db.purchase_orders.find_one({"_id": to_oid(order_id)})
     return serialize_doc(doc)
@@ -789,7 +808,7 @@ async def create_receiving(
         "items": lines_out,
         "total": total,
         "notes": payload.notes,
-        "received_by": user["email"],
+        "received_by": user["username"],
         "received_at": iso(now_utc()),
     }
     res = await db.receivings.insert_one(doc)
@@ -845,7 +864,7 @@ async def create_issue(
         "items": lines,
         "total_cost": total_cost,
         "notes": payload.notes,
-        "issued_by": user["email"],
+        "issued_by": user["username"],
         "issued_at": iso(now_utc()),
         "issue_date": today,
     }
@@ -900,7 +919,7 @@ async def create_opname(
         "items": lines,
         "total_variance_value": total_variance_value,
         "status": "draft",
-        "counted_by": user["email"],
+        "counted_by": user["username"],
         "approved_by": None,
         "notes": payload.notes,
         "created_at": iso(now_utc()),
@@ -930,7 +949,7 @@ async def approve_opname(
         {
             "$set": {
                 "status": "approved",
-                "approved_by": user["email"],
+                "approved_by": user["username"],
                 "approved_at": iso(now_utc()),
             }
         },
@@ -967,7 +986,7 @@ async def upsert_revenue(
         {
             "$set": {
                 **payload.model_dump(),
-                "created_by": user["email"],
+                "created_by": user["username"],
                 "updated_at": iso(now_utc()),
             }
         },
@@ -1123,7 +1142,7 @@ async def create_recipe(
 ):
     doc = {
         **payload.model_dump(),
-        "created_by": user["email"],
+        "created_by": user["username"],
         "created_at": iso(now_utc()),
     }
     res = await db.recipes.insert_one(doc)
@@ -1257,7 +1276,7 @@ async def orders_bulk_upload(
                 "total": total,
                 "status": "waiting_approval",
                 "notes": notes,
-                "created_by": user["email"],
+                "created_by": user["username"],
                 "created_at": iso(now_utc()),
                 "approved_by": None,
                 "approved_at": None,
@@ -1354,7 +1373,7 @@ async def receivings_bulk_upload(
                 "items": lines,
                 "total": total,
                 "notes": notes,
-                "received_by": user["email"],
+                "received_by": user["username"],
                 "received_at": iso(now_utc()),
             }
             await db.receivings.insert_one(doc)
@@ -1441,7 +1460,7 @@ async def issues_bulk_upload(
                 "items": lines,
                 "total_cost": total_cost,
                 "notes": notes,
-                "issued_by": user["email"],
+                "issued_by": user["username"],
                 "issued_at": iso(now_utc()),
                 "issue_date": now_utc().strftime("%Y-%m-%d"),
             }
@@ -2021,22 +2040,56 @@ async def report_top_consumed(
 # ==============================================================================
 # Seeding
 # ==============================================================================
-async def seed_data():
-    # Users
-    admin_email = os.environ.get("ADMIN_EMAIL", "admin@lagobali.com").lower()
+async def migrate_users_to_username():
+    """One-time migration: derive `username` for any user that still has `email`.
+    Runs BEFORE the unique index on `username` is created."""
+    # Best-effort drop of legacy email index so we can remove the field
+    try:
+        existing_idx = await db.users.index_information()
+        for idx_name in list(existing_idx.keys()):
+            keys = existing_idx[idx_name].get("key", [])
+            if any(k[0] == "email" for k in keys):
+                await db.users.drop_index(idx_name)
+                logger.info("Dropped legacy user index: %s", idx_name)
+    except Exception as e:
+        logger.warning("Could not inspect/drop legacy user indexes: %s", e)
+
+    async for u in db.users.find({"username": {"$exists": False}}):
+        legacy_email = (u.get("email") or "").lower().strip()
+        candidate = legacy_email.split("@", 1)[0] if legacy_email else f"user{str(u['_id'])[:6]}"
+        candidate = re.sub(r"[^a-zA-Z0-9._]", "", candidate) or f"user{str(u['_id'])[:6]}"
+        base = candidate[:30]
+        final = base
+        n = 1
+        while await db.users.find_one({"username": final, "_id": {"$ne": u["_id"]}}):
+            n += 1
+            final = f"{base[:27]}{n:02d}"
+        await db.users.update_one(
+            {"_id": u["_id"]},
+            {"$set": {"username": final}, "$unset": {"email": ""}},
+        )
+        logger.info("Migrated legacy user %s -> username=%s", legacy_email or u["_id"], final)
+    # Sweep: strip any remaining email field on already-migrated docs
+    await db.users.update_many({"email": {"$exists": True}}, {"$unset": {"email": ""}})
+
+
+async def seed_data():    # Users
+    admin_username = normalize_username(
+        os.environ.get("ADMIN_USERNAME", "admin")
+    )
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
     demo_users = [
-        {"email": admin_email, "password": admin_password, "name": "Admin Lago Bali", "role": "admin"},
-        {"email": "purchasing@lagobali.com", "password": "demo123", "name": "Rina (Purchasing)", "role": "purchasing"},
-        {"email": "warehouse@lagobali.com", "password": "demo123", "name": "Budi (Warehouse)", "role": "warehouse"},
-        {"email": "finance@lagobali.com", "password": "demo123", "name": "Sari (Finance)", "role": "finance"},
+        {"username": admin_username, "password": admin_password, "name": "Admin Lago Bali", "role": "admin"},
+        {"username": "purchasing", "password": "demo123", "name": "Rina (Purchasing)", "role": "purchasing"},
+        {"username": "warehouse", "password": "demo123", "name": "Budi (Warehouse)", "role": "warehouse"},
+        {"username": "finance", "password": "demo123", "name": "Sari (Finance)", "role": "finance"},
     ]
     for u in demo_users:
-        existing = await db.users.find_one({"email": u["email"]})
+        existing = await db.users.find_one({"username": u["username"]})
         if existing is None:
             await db.users.insert_one(
                 {
-                    "email": u["email"],
+                    "username": u["username"],
                     "password_hash": hash_password(u["password"]),
                     "name": u["name"],
                     "role": u["role"],
@@ -2045,7 +2098,7 @@ async def seed_data():
             )
         elif not verify_password(u["password"], existing["password_hash"]):
             await db.users.update_one(
-                {"email": u["email"]},
+                {"username": u["username"]},
                 {"$set": {"password_hash": hash_password(u["password"])}},
             )
 
@@ -2086,7 +2139,7 @@ async def seed_data():
 
 
 async def ensure_indexes():
-    await db.users.create_index("email", unique=True)
+    await db.users.create_index("username", unique=True)
     await db.outlets.create_index("code", unique=True)
     await db.suppliers.create_index("code", unique=True)
     await db.items.create_index("sku", unique=True)
@@ -2103,6 +2156,7 @@ async def ensure_indexes():
 @app.on_event("startup")
 async def startup():
     logger.info("Starting HINTO backend")
+    await migrate_users_to_username()
     await ensure_indexes()
     await seed_data()
     logger.info("Startup complete")

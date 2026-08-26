@@ -36,6 +36,10 @@ Aplikasi untuk mengontrol inventory perusahaan hotel dan F&B: order barang, pene
 - No sample items / suppliers / transactions (wiped for production readiness)
 
 ## Changelog
+- **2026-08-26 (later)**: Login migrated from **email → username**.
+  - Backend: schema `LoginIn`/`UserCreateIn` use `username`, regex validated (3–30 chars letters/digits/dot/underscore), stored lowercase. JWT payload includes `username`. All audit trail fields (`created_by`, `approved_by`, `received_by`, etc.) now record username. Startup migration derives `username` from local-part of legacy email + strips the `email` field from every user doc, then drops the old email unique index and creates a unique index on `username`. `.env` renamed `ADMIN_EMAIL` → `ADMIN_USERNAME`.
+  - Frontend: Login page shows Username field (text, autoComplete=username), demo chips use usernames. User Management table + create/edit modal use username (immutable on edit). AuthContext + Layout tooltip updated. `Field` UI component now supports `disabled`.
+  - Existing users auto-migrated: `admin@lagobali.com` → `admin`, `purchasing@lagobali.com` → `purchasing`, `warehouse@lagobali.com` → `warehouse`, `finance@lagobali.com` → `finance` (passwords unchanged).
 - **2026-08-26**: Full UI + backend error messages translated Indonesian → English.
   - Fixed compile break where sed renamed `HPPPage.jsx` import to `COGSPage.jsx` without renaming file.
   - Renamed file `HPPPage.jsx` → `COGSPage.jsx`.
