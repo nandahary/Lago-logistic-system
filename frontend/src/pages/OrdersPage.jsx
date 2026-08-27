@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Upload, Trash2, Check, X, Printer } from "lucide-react";
+import { Plus, Upload, Trash2, Check, X, Printer, Pencil } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { money, outletNames, statusLabels, statusTone, formatDate } from "../lib/format";
 import { useOutlets } from "../lib/useOutlets";
@@ -8,6 +8,7 @@ import { PageIntro, PanelHead, Modal, Field, SelectField, Badge } from "../compo
 import { BulkUploadDialog } from "../components/BulkUpload";
 import { useAuth } from "../context/AuthContext";
 import { printPurchaseOrder } from "../lib/printDocs";
+import { ItemPicker } from "../components/ItemPicker";
 
 const TEMPLATE = {
   headers: ["po_ref", "supplier", "outlet_code", "item_sku", "qty", "price", "notes"],
@@ -24,13 +25,16 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState([]);
   const [items, setItems] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
-  const [modal, setModal] = useState(null); // "new" | "upload"
+  const [modal, setModal] = useState(null); // "new" | "upload" | "edit" | {mode:"cancel",po}
+  const [editingId, setEditingId] = useState(null);
   const [supplierId, setSupplierId] = useState("");
   const [supplier, setSupplier] = useState("");
+  const [paymentTerms, setPaymentTerms] = useState("");
   const [outletCode, setOutletCode] = useState("kitchen");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState([{ item_id: "", qty: "1", price: "0" }]);
   const [saving, setSaving] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
 
   const load = () => api.get("/orders").then((r) => setOrders(r.data));
   useEffect(() => {
@@ -41,20 +45,49 @@ export default function OrdersPage() {
 
   const canCreate = ["admin", "purchasing"].includes(user?.role);
   const canApprove = ["admin", "finance"].includes(user?.role);
+  const canCancel = user?.role === "admin";
 
   const openNew = () => {
+    setEditingId(null);
     setSupplierId("");
     setSupplier("");
+    setPaymentTerms("");
     setOutletCode("kitchen");
     setNotes("");
     setLines([{ item_id: "", qty: "1", price: "0" }]);
     setModal("new");
   };
 
+  const openEdit = (po) => {
+    if (po.status !== "waiting_approval") {
+      toast.error("Only PO in waiting approval can be edited");
+      return;
+    }
+    setEditingId(po.id);
+    const matched = suppliers.find((s) => s.name === po.supplier);
+    setSupplierId(matched?.id || "");
+    setSupplier(po.supplier || "");
+    setPaymentTerms(po.payment_terms || matched?.payment_terms || "");
+    setOutletCode(po.outlet_code || "kitchen");
+    setNotes(po.notes || "");
+    setLines(
+      (po.items || []).map((l) => ({
+        item_id: l.item_id,
+        qty: String(l.qty),
+        price: String(l.price),
+      }))
+    );
+    setModal("edit");
+  };
+
   const onPickSupplier = (id) => {
     setSupplierId(id);
     const s = suppliers.find((x) => x.id === id);
-    if (s) setSupplier(s.name);
+    if (s) {
+      setSupplier(s.name);
+      // Only auto-fill payment terms if the field is currently empty (don't clobber a manual edit)
+      if (!paymentTerms) setPaymentTerms(s.payment_terms || "");
+    }
   };
 
   const addLine = () => setLines([...lines, { item_id: "", qty: "1", price: "0" }]);
@@ -80,6 +113,7 @@ export default function OrdersPage() {
         supplier,
         outlet_code: outletCode,
         notes,
+        payment_terms: paymentTerms,
         items: cleanLines.map((l) => {
           const it = items.find((i) => i.id === l.item_id);
           return {
@@ -91,9 +125,15 @@ export default function OrdersPage() {
           };
         }),
       };
-      await api.post("/orders", payload);
-      toast.success("PO created successfully");
+      if (editingId) {
+        await api.put(`/orders/${editingId}`, payload);
+        toast.success("PO updated successfully");
+      } else {
+        await api.post("/orders", payload);
+        toast.success("PO created successfully");
+      }
       setModal(null);
+      setEditingId(null);
       load();
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || err.message);
@@ -112,14 +152,26 @@ export default function OrdersPage() {
     }
   };
 
-  const cancel = async (id) => {
-    if (!window.confirm("Cancel this PO?")) return;
+  const openCancel = (po) => {
+    setCancelReason("");
+    setModal({ mode: "cancel", po });
+  };
+
+  const submitCancel = async (e) => {
+    e.preventDefault();
+    const reason = cancelReason.trim();
+    if (!reason) return toast.error("Cancellation reason is required");
+    if (reason.length < 4) return toast.error("Reason must be at least 4 characters");
+    setSaving(true);
     try {
-      await api.post(`/orders/${id}/cancel`);
-      toast.success("PO cancelled");
+      await api.post(`/orders/${modal.po.id}/cancel`, { reason });
+      toast.success(`PO ${modal.po.po_number} cancelled`);
+      setModal(null);
       load();
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || err.message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -216,9 +268,20 @@ export default function OrdersPage() {
                       )}
                       {o.status === "waiting_approval" && canCreate && (
                         <button
+                          data-testid={`po-edit-${o.id}`}
                           className="small-button"
                           style={{ marginLeft: 6 }}
-                          onClick={() => cancel(o.id)}
+                          onClick={() => openEdit(o)}
+                        >
+                          <Pencil size={12} /> Edit
+                        </button>
+                      )}
+                      {canCancel && o.status !== "cancelled" && o.status !== "received" && (
+                        <button
+                          data-testid={`po-cancel-${o.id}`}
+                          className="small-button"
+                          style={{ marginLeft: 6 }}
+                          onClick={() => openCancel(o)}
                         >
                           <X size={12} /> Cancel
                         </button>
@@ -241,8 +304,11 @@ export default function OrdersPage() {
         </div>
       </section>
 
-      {modal === "new" && (
-        <Modal title="Create purchase order" onClose={() => setModal(null)}>
+      {(modal === "new" || modal === "edit") && (
+        <Modal
+          title={modal === "edit" ? "Edit purchase order" : "Create purchase order"}
+          onClose={() => { setModal(null); setEditingId(null); }}
+        >
           <form className="form-grid" onSubmit={submit}>
             <label className="field">
               <span>Supplier</span>
@@ -267,6 +333,13 @@ export default function OrdersPage() {
               onChange={setOutletCode}
               options={outletsList.map((o) => ({ value: o.code, label: o.name }))}
             />
+            <Field
+              label="Payment terms"
+              testid="po-payment-terms-input"
+              value={paymentTerms}
+              onChange={setPaymentTerms}
+              placeholder="Net 14, COD, etc."
+            />
             <label className="field" style={{ gridColumn: "1/-1" }}>
               <span>Notes (optional)</span>
               <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Weekly restock..." />
@@ -276,18 +349,13 @@ export default function OrdersPage() {
               <div className="line-editor">
                 {lines.map((l, idx) => (
                   <div className="line-row" key={idx}>
-                    <select
-                      data-testid={`po-line-item-${idx}`}
+                    <ItemPicker
+                      items={items}
                       value={l.item_id}
-                      onChange={(e) => updateLine(idx, "item_id", e.target.value)}
-                    >
-                      <option value="">Pick item...</option>
-                      {items.map((it) => (
-                        <option key={it.id} value={it.id}>
-                          {it.name} ({it.sku})
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(id) => updateLine(idx, "item_id", id)}
+                      testid={`po-line-item-${idx}`}
+                      placeholder="Search item by name or SKU..."
+                    />
                     <input
                       data-testid={`po-line-qty-${idx}`}
                       type="number"
@@ -314,9 +382,9 @@ export default function OrdersPage() {
               <div className="line-total">Total: <strong>{money(linesTotal)}</strong></div>
             </div>
             <div className="form-actions">
-              <button type="button" className="secondary-button" onClick={() => setModal(null)}>Cancel</button>
+              <button type="button" className="secondary-button" onClick={() => { setModal(null); setEditingId(null); }}>Cancel</button>
               <button data-testid="po-save-button" className="primary-button" type="submit" disabled={saving}>
-                <Check size={16} /> {saving ? "Saving..." : "Save PO"}
+                <Check size={16} /> {saving ? "Saving..." : editingId ? "Update PO" : "Save PO"}
               </button>
             </div>
           </form>
@@ -340,6 +408,44 @@ export default function OrdersPage() {
           onSuccess={load}
           testid="orders-upload"
         />
+      )}
+
+      {modal && typeof modal === "object" && modal.mode === "cancel" && (
+        <Modal
+          title={`Cancel PO ${modal.po.po_number}`}
+          onClose={() => setModal(null)}
+        >
+          <form className="form-grid" onSubmit={submitCancel}>
+            <p className="form-hint" style={{ gridColumn: "1/-1" }}>
+              This action cannot be undone. Please provide a reason so it is recorded on the PO history.
+            </p>
+            <label className="field" style={{ gridColumn: "1/-1" }}>
+              <span>Cancellation reason</span>
+              <textarea
+                data-testid="po-cancel-reason-input"
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="e.g. supplier unavailable, duplicate order, wrong quantity..."
+                rows={4}
+                autoFocus
+                required
+              />
+            </label>
+            <div className="form-actions">
+              <button type="button" className="secondary-button" onClick={() => setModal(null)}>
+                Keep PO
+              </button>
+              <button
+                data-testid="po-cancel-confirm-button"
+                className="primary-button danger"
+                type="submit"
+                disabled={saving}
+              >
+                <X size={16} /> {saving ? "Cancelling..." : "Confirm cancel"}
+              </button>
+            </div>
+          </form>
+        </Modal>
       )}
     </>
   );

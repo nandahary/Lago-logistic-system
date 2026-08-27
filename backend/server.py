@@ -189,6 +189,7 @@ class ItemIn(BaseModel):
     stock: float = 0
     supplier: Optional[str] = ""
     outlet_code: Optional[str] = "main_wh"
+    notes: Optional[str] = ""
 
 
 class ItemUpdateIn(BaseModel):
@@ -199,6 +200,8 @@ class ItemUpdateIn(BaseModel):
     min_stock: Optional[float] = None
     stock: Optional[float] = None
     supplier: Optional[str] = None
+    outlet_code: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class POLineIn(BaseModel):
@@ -214,6 +217,11 @@ class POCreateIn(BaseModel):
     outlet_code: str
     items: List[POLineIn]
     notes: Optional[str] = ""
+    payment_terms: Optional[str] = ""
+
+
+class POCancelIn(BaseModel):
+    reason: str
 
 
 class ReceivingLineIn(BaseModel):
@@ -690,6 +698,7 @@ async def create_order(
         "total": total,
         "status": "waiting_approval",
         "notes": payload.notes,
+        "payment_terms": payload.payment_terms or "",
         "created_by": user["username"],
         "created_at": iso(now_utc()),
         "approved_by": None,
@@ -697,6 +706,43 @@ async def create_order(
     }
     res = await db.purchase_orders.insert_one(doc)
     doc["_id"] = res.inserted_id
+    return serialize_doc(doc)
+
+
+@api.put("/orders/{order_id}")
+async def update_order(
+    order_id: str,
+    payload: POCreateIn,
+    user: dict = Depends(require_roles("purchasing", "admin")),
+):
+    order = await db.purchase_orders.find_one({"_id": to_oid(order_id)})
+    if not order:
+        raise HTTPException(status_code=404, detail="PO not found")
+    if order["status"] != "waiting_approval":
+        raise HTTPException(
+            status_code=400,
+            detail=f"PO cannot be edited (status: {order['status']}). Only PO in waiting approval can be edited.",
+        )
+    total = sum(line.qty * line.price for line in payload.items)
+    await db.purchase_orders.update_one(
+        {"_id": to_oid(order_id)},
+        {
+            "$set": {
+                "supplier": payload.supplier,
+                "outlet_code": payload.outlet_code,
+                "items": [
+                    {**line.model_dump(), "received_qty": 0}
+                    for line in payload.items
+                ],
+                "total": total,
+                "notes": payload.notes,
+                "payment_terms": payload.payment_terms or "",
+                "updated_by": user["username"],
+                "updated_at": iso(now_utc()),
+            }
+        },
+    )
+    doc = await db.purchase_orders.find_one({"_id": to_oid(order_id)})
     return serialize_doc(doc)
 
 
@@ -717,10 +763,31 @@ async def approve_order(order_id: str, user: dict = Depends(require_roles("finan
 
 @api.post("/orders/{order_id}/cancel")
 async def cancel_order(
-    order_id: str, user: dict = Depends(require_roles("purchasing", "admin", "finance"))
+    order_id: str,
+    payload: POCancelIn,
+    user: dict = Depends(require_roles("admin")),
 ):
+    reason = (payload.reason or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Cancellation reason is required")
+    order = await db.purchase_orders.find_one({"_id": to_oid(order_id)})
+    if not order:
+        raise HTTPException(status_code=404, detail="PO not found")
+    if order["status"] in ("cancelled", "received"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"PO cannot be cancelled (status: {order['status']})",
+        )
     await db.purchase_orders.update_one(
-        {"_id": to_oid(order_id)}, {"$set": {"status": "cancelled"}}
+        {"_id": to_oid(order_id)},
+        {
+            "$set": {
+                "status": "cancelled",
+                "cancelled_reason": reason,
+                "cancelled_by": user["username"],
+                "cancelled_at": iso(now_utc()),
+            }
+        },
     )
     doc = await db.purchase_orders.find_one({"_id": to_oid(order_id)})
     return serialize_doc(doc)

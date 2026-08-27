@@ -144,7 +144,7 @@ export function printPurchaseOrder(po, supplier = null) {
         ${supplier?.contact_person ? `<div class="row"><span>Contact</span><strong>${escapeHtml(supplier.contact_person)}</strong></div>` : ""}
         ${supplier?.phone ? `<div class="row"><span>Phone</span><strong>${escapeHtml(supplier.phone)}</strong></div>` : ""}
         ${supplier?.email ? `<div class="row"><span>Email</span><strong>${escapeHtml(supplier.email)}</strong></div>` : ""}
-        ${supplier?.payment_terms ? `<div class="row"><span>Payment</span><strong>${escapeHtml(supplier.payment_terms)}</strong></div>` : ""}
+        ${(po?.payment_terms || supplier?.payment_terms) ? `<div class="row"><span>Payment</span><strong>${escapeHtml(po?.payment_terms || supplier?.payment_terms)}</strong></div>` : ""}
         ${supplier?.lead_time_days ? `<div class="row"><span>Lead time</span><strong>${supplier.lead_time_days} days</strong></div>` : ""}
       </div>
     </div>

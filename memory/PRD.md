@@ -36,6 +36,19 @@ Aplikasi untuk mengontrol inventory perusahaan hotel dan F&B: order barang, pene
 - No sample items / suppliers / transactions (wiped for production readiness)
 
 ## Changelog
+- **2026-08-27**: Edit PO + Cancel PO with reason + Edit Item feature.
+  - Backend:
+    - `PUT /api/orders/{id}` — edit PO only when status=`waiting_approval` (405-esque 400 for any other status). Editable fields: supplier, outlet_code, payment_terms, notes, items[]. Total recomputed on save. Stamps `updated_by`/`updated_at`.
+    - `POST /api/orders/{id}/cancel` — now **admin only**, requires JSON body `{ reason }`. Empty reason → 400. Stores `cancelled_reason`, `cancelled_by`, `cancelled_at`. Cannot cancel already-cancelled or fully-received POs.
+    - New optional `payment_terms` field on POCreateIn / PO document; new `notes` field on ItemIn/ItemUpdateIn + outlet_code addable via PATCH.
+  - Frontend:
+    - OrdersPage: per-row **Edit** (visible only for waiting_approval, purchasing/admin) and **Cancel** (admin only, hidden for cancelled/received) buttons. Reuses the create modal for edit with title switching, payment-terms field, and dynamic "Save PO"/"Update PO" label. Cancel opens its own modal with a required reason textarea and a red "Confirm cancel" button.
+    - InventoryPage: per-row **Edit** action (admin/purchasing/warehouse). Reuses the add modal — SKU is locked in edit mode, initial stock hidden, notes textarea added, and a business-rule notice reminds users that price/UOM updates apply to **new transactions only** (historical PO/GRN/issues keep original values via cost_at_issue snapshots).
+    - Item picker CSS supports focus-styled combobox; new `.primary-button.danger` + `.form-hint` styles.
+  - Print PO template now prefers `po.payment_terms` over supplier's default.
+- **2026-08-26 (later³)**: Purchase Order item picker upgraded to a searchable typeahead combobox.
+  - New reusable `ItemPicker` component (`/app/frontend/src/components/ItemPicker.jsx`) with type-to-filter (matches name/SKU/category), keyboard nav (↑/↓/Enter/Esc), clear button, category+outlet+unit metadata on each option, and a "show first 100 + refine" guard for very large catalogs.
+  - Wired into OrdersPage line rows. Selecting an item still auto-fills price from item.cost.
 - **2026-08-26 (later²)**: Added bulk delete for supplier catalog.
   - Backend: `POST /api/suppliers/bulk-delete` (admin only) accepts `{ ids: string[] }`, returns `{ deleted, requested, invalid }`. Invalid IDs are reported but do not block the operation.
   - Frontend: SuppliersPage now has a checkbox column, "Select all" master checkbox, per-row selection, and a red "Delete selected (n)" button that appears only when items are selected. Confirmation prompt guards the delete.
