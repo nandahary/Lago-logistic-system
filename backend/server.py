@@ -766,10 +766,15 @@ async def update_order(
     order = await db.purchase_orders.find_one({"_id": to_oid(order_id)})
     if not order:
         raise HTTPException(status_code=404, detail="PO not found")
-    if order["status"] != "waiting_approval":
+    if order["status"] != "waiting_approval" and user["role"] != "admin":
         raise HTTPException(
             status_code=400,
             detail=f"PO cannot be edited (status: {order['status']}). Only PO in waiting approval can be edited.",
+        )
+    if user["role"] == "admin" and order["status"] in ("received", "cancelled"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"PO is in terminal status '{order['status']}' and cannot be edited even by admin.",
         )
     total = sum(line.qty * line.price for line in payload.items)
     await db.purchase_orders.update_one(
@@ -850,6 +855,7 @@ PR_STATUS_APPROVED = "approved"
 PR_STATUS_REJECTED = "rejected"
 PR_STATUS_RETURNED = "returned"
 PR_STATUS_CONVERTED = "converted"
+PR_STATUS_CANCELLED = "cancelled"
 
 PR_PRIORITIES = {"low", "medium", "high", "urgent"}
 PR_DEFAULT_FLOW = ["finance"]
@@ -986,7 +992,14 @@ async def update_pr(pr_id: str, payload: PRCreateIn, user: dict = Depends(get_cu
         raise HTTPException(status_code=404, detail="PR not found")
     if pr["requester_username"] != user["username"] and user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only the requester or admin can edit")
-    if pr["status"] not in (PR_STATUS_DRAFT, PR_STATUS_RETURNED):
+    # Admin can edit at any status except final terminal states (converted / cancelled / rejected).
+    if user["role"] == "admin":
+        if pr["status"] in (PR_STATUS_CONVERTED, PR_STATUS_CANCELLED, PR_STATUS_REJECTED):
+            raise HTTPException(
+                status_code=400,
+                detail=f"PR is in terminal status '{pr['status']}' and cannot be edited.",
+            )
+    elif pr["status"] not in (PR_STATUS_DRAFT, PR_STATUS_RETURNED):
         raise HTTPException(
             status_code=400,
             detail=f"PR cannot be edited (status: {pr['status']}). Only draft or returned PRs can be edited.",
@@ -1216,6 +1229,129 @@ async def convert_pr_to_po(
         },
     )
     return {"pos": created_pos, "count": len(created_pos)}
+
+
+@api.post("/purchase-requests/{pr_id}/cancel")
+async def cancel_pr(
+    pr_id: str,
+    payload: POCancelIn,
+    user: dict = Depends(require_roles("admin")),
+):
+    reason = (payload.reason or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Cancellation reason is required")
+    pr = await db.purchase_requests.find_one({"_id": to_oid(pr_id)})
+    if not pr:
+        raise HTTPException(status_code=404, detail="PR not found")
+    if pr["status"] in (PR_STATUS_CANCELLED, PR_STATUS_CONVERTED):
+        raise HTTPException(status_code=400, detail=f"PR cannot be cancelled (status: {pr['status']})")
+    await db.purchase_requests.update_one(
+        {"_id": to_oid(pr_id)},
+        {
+            "$set": {
+                "status": PR_STATUS_CANCELLED,
+                "cancelled_reason": reason,
+                "cancelled_by": user["username"],
+                "cancelled_at": iso(now_utc()),
+                "updated_at": iso(now_utc()),
+            }
+        },
+    )
+    doc = await db.purchase_requests.find_one({"_id": to_oid(pr_id)})
+    return serialize_doc(doc)
+
+
+@api.post("/purchase-requests/bulk-upload")
+async def prs_bulk_upload(
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+):
+    """CSV header: pr_ref,department,cost_center,project,priority,required_delivery_date,notes,item_sku,item_name,category,qty,unit,line_notes
+    Rows sharing the same pr_ref become one PR (saved as draft)."""
+    content = await file.read()
+    rows = _parse_csv(content)
+    if not rows:
+        raise HTTPException(status_code=400, detail="CSV is empty or format not recognized")
+    groups: Dict[str, List[dict]] = {}
+    for i, r in enumerate(rows, start=2):
+        ref = (r.get("pr_ref") or "").strip() or f"batch-{i}"
+        groups.setdefault(ref, []).append({"row": i, **r})
+    created, errors = 0, []
+    flow = await get_pr_flow()
+    for ref, group in groups.items():
+        try:
+            head = group[0]
+            department = (head.get("department") or "").strip()
+            if not department:
+                errors.append(f"Group {ref}: department is empty")
+                continue
+            priority = (head.get("priority") or "medium").strip().lower()
+            if priority not in PR_PRIORITIES:
+                errors.append(f"Group {ref}: invalid priority '{priority}'")
+                continue
+            items_out = []
+            for row in group:
+                name = (row.get("item_name") or "").strip()
+                sku = (row.get("item_sku") or "").strip()
+                qty = _num(row.get("qty"), default=0)
+                unit = (row.get("unit") or "pcs").strip()
+                if not name and not sku:
+                    errors.append(f"Line {row['row']}: item_name or item_sku is required")
+                    continue
+                if qty <= 0:
+                    errors.append(f"Line {row['row']}: qty must be > 0")
+                    continue
+                item_id = None
+                resolved_name = name
+                resolved_unit = unit
+                resolved_category = (row.get("category") or "").strip()
+                if sku:
+                    it = await db.items.find_one({"sku": sku})
+                    if it:
+                        item_id = str(it["_id"])
+                        resolved_name = resolved_name or it.get("name") or sku
+                        resolved_unit = resolved_unit or it.get("unit") or "pcs"
+                        resolved_category = resolved_category or it.get("category") or ""
+                items_out.append(
+                    {
+                        "item_id": item_id,
+                        "sku": sku,
+                        "name": resolved_name or sku,
+                        "category": resolved_category,
+                        "qty": qty,
+                        "unit": resolved_unit,
+                        "notes": (row.get("line_notes") or "").strip(),
+                    }
+                )
+            if not items_out:
+                errors.append(f"Group {ref}: no valid line items")
+                continue
+            doc = {
+                "pr_number": await next_pr_number(),
+                "requester_username": user["username"],
+                "requester_name": user.get("name") or user["username"],
+                "request_date": iso(now_utc()),
+                "department": department,
+                "cost_center": (head.get("cost_center") or "").strip(),
+                "required_delivery_date": (head.get("required_delivery_date") or None) or None,
+                "project": (head.get("project") or "").strip(),
+                "priority": priority,
+                "notes": (head.get("notes") or "").strip(),
+                "items": items_out,
+                "attachments": [],
+                "approval_flow": flow,
+                "current_level": 0,
+                "approvals": [],
+                "status": PR_STATUS_DRAFT,
+                "converted_po_ids": [],
+                "created_at": iso(now_utc()),
+                "updated_at": iso(now_utc()),
+            }
+            await db.purchase_requests.insert_one(doc)
+            created += 1
+        except Exception as e:
+            errors.append(f"Group {ref}: {str(e)}")
+    return {"created": created, "errors": errors, "total_rows": len(rows)}
 
 
 

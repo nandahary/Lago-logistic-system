@@ -36,6 +36,17 @@ Aplikasi untuk mengontrol inventory perusahaan hotel dan F&B: order barang, pene
 - No sample items / suppliers / transactions (wiped for production readiness)
 
 ## Changelog
+- **2026-08-27 (later²)**: PR CSV bulk upload + admin overrides on PR & PO.
+  - Backend:
+    - New `POST /api/purchase-requests/bulk-upload` (any authenticated user) — groups rows by `pr_ref`, resolves `item_sku` against the item master (auto-links `item_id`), accepts free-text lines when SKU is absent. Rejects invalid priorities / missing department / non-positive qty. Every row lands as a draft PR.
+    - New `POST /api/purchase-requests/{id}/cancel` (admin-only) — requires reason, blocks already-cancelled or converted PRs, records `cancelled_reason` / `cancelled_by` / `cancelled_at`.
+    - Admin override on PR edit: admin can now edit at any non-terminal status (blocks `converted`, `cancelled`, `rejected`).
+    - Admin override on PO edit: admin can now edit approved/partial POs (still blocks `received` and `cancelled`).
+    - New PR status `PR_STATUS_CANCELLED`.
+  - Frontend:
+    - PR page: new **Upload CSV** button in header, reuses `BulkUploadDialog` with 13-column template. New **Cancel** row button (admin-only, on non-terminal PRs) with reason-required modal. Status badge & label for "Cancelled".
+    - PR `canEditPr` widened: admin sees Edit button on any non-terminal PR; non-admins still restricted to their own drafts/returned.
+    - OrdersPage: admin sees **Edit** button on any non-terminal PO (waiting_approval / approved / partial), non-admins still restricted to `waiting_approval`.
 - **2026-08-27 (later)**: Purchase Request (PR) module with multi-level approval → converts to PO(s).
   - Backend: new `purchase_requests` collection + `settings.pr_approval_flow` doc. 11 new endpoints:
     - `GET/PUT /api/pr-config` — read/update approval flow (admin), roles allowed: admin/purchasing/warehouse/finance.

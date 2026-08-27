@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
-  Plus, Search, Send, Check, X, RotateCcw, Trash2, Printer, Pencil, FileText, Layers,
+  Plus, Search, Send, Check, X, RotateCcw, Trash2, Printer, Pencil, FileText, Layers, Upload,
 } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { formatDate, outletNames } from "../lib/format";
 import { PageIntro, PanelHead, Modal, Field, SelectField, Badge } from "../components/UI";
 import { ItemPicker } from "../components/ItemPicker";
+import { BulkUploadDialog } from "../components/BulkUpload";
 import { useAuth } from "../context/AuthContext";
 import { printPurchaseRequest } from "../lib/printDocs";
 
@@ -18,6 +19,7 @@ const STATUS_TONE = {
   rejected: "neutral",
   returned: "amber",
   converted: "green",
+  cancelled: "neutral",
 };
 const STATUS_LABEL = {
   draft: "Draft",
@@ -26,6 +28,16 @@ const STATUS_LABEL = {
   rejected: "Rejected",
   returned: "Returned",
   converted: "Converted to PO",
+  cancelled: "Cancelled",
+};
+
+const PR_UPLOAD_TEMPLATE = {
+  headers: ["pr_ref", "department", "cost_center", "project", "priority", "required_delivery_date", "notes", "item_sku", "item_name", "category", "qty", "unit", "line_notes"],
+  example: [
+    ["A", "Kitchen", "CC-KITCHEN-01", "Weekend menu", "high", "2026-09-05", "urgent restock", "PRT-001", "Ribeye 200g", "Protein", "20", "kg", "grade A"],
+    ["A", "Kitchen", "CC-KITCHEN-01", "Weekend menu", "high", "2026-09-05", "urgent restock", "VEG-001", "Romaine lettuce", "Vegetable", "10", "kg", ""],
+    ["B", "Bar", "CC-BAR-01", "", "medium", "", "restock", "BEV-042", "Mineral water 500ml", "Beverage", "40", "carton", ""],
+  ],
 };
 
 export default function PurchaseRequestPage() {
@@ -42,6 +54,7 @@ export default function PurchaseRequestPage() {
   const [detail, setDetail] = useState(null);
   const [comment, setComment] = useState("");
   const [convertLines, setConvertLines] = useState([]);
+  const [cancelReason, setCancelReason] = useState("");
 
   const loadAll = () => {
     api.get("/purchase-requests").then((r) => setPrs(r.data));
@@ -265,14 +278,46 @@ export default function PurchaseRequestPage() {
     const role = currentApproverRole(pr);
     return user?.role === role || user?.role === "admin";
   };
-  const canEditPr = (pr) =>
-    (pr.status === "draft" || pr.status === "returned") &&
-    (pr.requester_username === user?.username || user?.role === "admin");
+  const canEditPr = (pr) => {
+    if (["converted", "cancelled", "rejected"].includes(pr.status)) return false;
+    if (user?.role === "admin") return true;
+    return (
+      (pr.status === "draft" || pr.status === "returned") &&
+      pr.requester_username === user?.username
+    );
+  };
   const canSubmit = (pr) =>
     (pr.status === "draft" || pr.status === "returned") &&
     (pr.requester_username === user?.username || user?.role === "admin");
   const canConvert = (pr) =>
     pr.status === "approved" && ["admin", "purchasing"].includes(user?.role);
+  const canCancel = (pr) =>
+    user?.role === "admin" &&
+    pr.status !== "cancelled" &&
+    pr.status !== "converted";
+
+  const openCancel = (pr) => {
+    setDetail(pr);
+    setCancelReason("");
+    setModal({ cancel: true, pr });
+  };
+
+  const submitCancel = async (e) => {
+    e.preventDefault();
+    const reason = cancelReason.trim();
+    if (!reason) return toast.error("Cancellation reason is required");
+    setSaving(true);
+    try {
+      await api.post(`/purchase-requests/${modal.pr.id}/cancel`, { reason });
+      toast.success(`${modal.pr.pr_number} cancelled`);
+      setModal(null);
+      loadAll();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -295,6 +340,13 @@ export default function PurchaseRequestPage() {
         testid="pr-title"
         action={
           <div className="action-cluster">
+            <button
+              data-testid="pr-upload-button"
+              className="secondary-button"
+              onClick={() => setModal("upload")}
+            >
+              <Upload size={16} /> Upload CSV
+            </button>
             <button data-testid="create-pr-button" className="primary-button" onClick={openNew}>
               <Plus size={17} /> New PR
             </button>
@@ -381,6 +433,11 @@ export default function PurchaseRequestPage() {
                     {canConvert(p) && (
                       <button data-testid={`pr-convert-${p.id}`} className="small-button success" style={{ marginLeft: 6 }} onClick={() => openConvert(p)}>
                         <Layers size={12} /> To PO
+                      </button>
+                    )}
+                    {canCancel(p) && (
+                      <button data-testid={`pr-cancel-${p.id}`} className="small-button" style={{ marginLeft: 6 }} onClick={() => openCancel(p)}>
+                        <X size={12} /> Cancel
                       </button>
                     )}
                     <button data-testid={`pr-print-${p.id}`} className="small-button" style={{ marginLeft: 6 }} onClick={() => doPrint(p)} title="Print">
@@ -607,6 +664,52 @@ export default function PurchaseRequestPage() {
               <button type="button" className="secondary-button" onClick={() => setModal(null)}>Cancel</button>
               <button data-testid="pr-convert-confirm" type="submit" disabled={saving} className="primary-button">
                 <Layers size={16} /> {saving ? "Generating..." : "Generate PO(s)"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+      {modal === "upload" && (
+        <BulkUploadDialog
+          title="Upload purchase requests (CSV)"
+          endpoint="/purchase-requests/bulk-upload"
+          templateName="purchase_request_template.csv"
+          templateHeaders={PR_UPLOAD_TEMPLATE.headers}
+          templateExample={PR_UPLOAD_TEMPLATE.example}
+          instructions={
+            <>
+              Rows sharing the same <b>pr_ref</b> become one PR (saved as draft). Provide{" "}
+              <b>item_sku</b> matching your item master to auto-link the item; otherwise supply{" "}
+              <b>item_name</b> as free text. Priority: low / medium / high / urgent.
+            </>
+          }
+          onClose={() => setModal(null)}
+          onSuccess={loadAll}
+          testid="pr-upload"
+        />
+      )}
+
+      {modal && typeof modal === "object" && modal.cancel && (
+        <Modal title={`Cancel ${modal.pr.pr_number}`} onClose={() => setModal(null)}>
+          <form className="form-grid" onSubmit={submitCancel}>
+            <p className="form-hint" style={{ gridColumn: "1/-1" }}>
+              This is an admin override. The PR will be moved to <b>cancelled</b> and cannot be edited or converted.
+            </p>
+            <label className="field" style={{ gridColumn: "1/-1" }}>
+              <span>Cancellation reason (required)</span>
+              <textarea
+                data-testid="pr-cancel-reason"
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                rows={4}
+                autoFocus
+                required
+              />
+            </label>
+            <div className="form-actions">
+              <button type="button" className="secondary-button" onClick={() => setModal(null)}>Keep PR</button>
+              <button data-testid="pr-cancel-confirm" className="primary-button danger" type="submit" disabled={saving}>
+                <X size={16} /> {saving ? "Cancelling..." : "Confirm cancel"}
               </button>
             </div>
           </form>

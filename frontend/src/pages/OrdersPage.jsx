@@ -266,7 +266,7 @@ export default function OrdersPage() {
                           <Check size={12} /> Approve
                         </button>
                       )}
-                      {o.status === "waiting_approval" && canCreate && (
+                      {(o.status === "waiting_approval" || (user?.role === "admin" && !["received", "cancelled"].includes(o.status))) && canCreate && (
                         <button
                           data-testid={`po-edit-${o.id}`}
                           className="small-button"
