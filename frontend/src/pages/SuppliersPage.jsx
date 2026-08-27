@@ -23,6 +23,8 @@ export default function SuppliersPage() {
   const [modal, setModal] = useState(null); // {mode:"new"|"edit", data:{}}
   const [form, setForm] = useState(defaultForm());
   const [saving, setSaving] = useState(false);
+  const [selected, setSelected] = useState(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const canEdit = ["admin", "purchasing"].includes(user?.role);
   const canDelete = user?.role === "admin";
@@ -32,6 +34,44 @@ export default function SuppliersPage() {
     api.get("/suppliers", { params }).then((r) => setList(r.data));
   };
   useEffect(load, [search]);
+
+  // Clear selection when the underlying list changes (search/reload)
+  useEffect(() => {
+    setSelected((prev) => {
+      const listIds = new Set(list.map((s) => s.id));
+      const next = new Set();
+      prev.forEach((id) => listIds.has(id) && next.add(id));
+      return next;
+    });
+  }, [list]);
+
+  const toggleOne = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+  const toggleAll = (checked) => {
+    setSelected(checked ? new Set(list.map((s) => s.id)) : new Set());
+  };
+
+  const bulkDelete = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Delete ${ids.length} selected supplier(s)? This cannot be undone.`)) return;
+    setBulkDeleting(true);
+    try {
+      const { data } = await api.post("/suppliers/bulk-delete", { ids });
+      toast.success(`${data.deleted} supplier(s) deleted`);
+      setSelected(new Set());
+      load();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || err.message);
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
 
   const openNew = () => {
     setForm(defaultForm());
@@ -135,11 +175,33 @@ export default function SuppliersPage() {
               placeholder="Search by supplier name or code..."
             />
           </div>
+          {canDelete && selected.size > 0 && (
+            <button
+              data-testid="supplier-bulk-delete-button"
+              className="secondary-button danger"
+              onClick={bulkDelete}
+              disabled={bulkDeleting}
+              style={{ marginLeft: "auto" }}
+            >
+              <Trash2 size={14} /> Delete selected ({selected.size})
+            </button>
+          )}
         </div>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
+                {canDelete && (
+                  <th style={{ width: 36 }}>
+                    <input
+                      type="checkbox"
+                      data-testid="supplier-select-all"
+                      aria-label="Select all suppliers"
+                      checked={list.length > 0 && selected.size === list.length}
+                      onChange={(e) => toggleAll(e.target.checked)}
+                    />
+                  </th>
+                )}
                 <th>Supplier</th>
                 <th>Contact</th>
                 <th>Phone</th>
@@ -151,15 +213,26 @@ export default function SuppliersPage() {
             </thead>
             <tbody>
               {list.length === 0 && (
-                <tr><td colSpan={7} style={{ textAlign: "center", padding: 40 }}>No suppliers yet.</td></tr>
+                <tr><td colSpan={canDelete ? 8 : 7} style={{ textAlign: "center", padding: 40 }}>No suppliers yet.</td></tr>
               )}
               {list.map((s) => (
                 <tr
                   key={s.id}
                   data-testid={`supplier-row-${s.id}`}
-                  className="clickable-row"
+                  className={`clickable-row ${selected.has(s.id) ? "row-selected" : ""}`}
                   onClick={() => navigate(`/suppliers/${s.id}`)}
                 >
+                  {canDelete && (
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        data-testid={`supplier-select-${s.id}`}
+                        aria-label={`Select ${s.name}`}
+                        checked={selected.has(s.id)}
+                        onChange={() => toggleOne(s.id)}
+                      />
+                    </td>
+                  )}
                   <td>
                     <strong>
                       {s.name} <ChevronRight size={12} style={{ verticalAlign: "middle", color: "#7d8a86" }} />

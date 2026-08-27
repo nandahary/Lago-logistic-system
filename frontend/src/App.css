@@ -51,6 +51,10 @@ body{background:var(--canvas);color:var(--ink);font-family:'DM Sans',sans-serif;
 .primary-button.full{width:100%;padding:13px}
 .secondary-button{background:#fff;color:var(--ink);border:1px solid var(--line);padding:10px 13px;border-radius:6px}
 .secondary-button:hover{background:#f0f4ef}
+.secondary-button.danger{color:#b0322a;border-color:#e6c9c5}
+.secondary-button.danger:hover{background:#faeeec}
+.secondary-button:disabled{opacity:.55;cursor:not-allowed}
+tr.row-selected td{background:#eef7f4 !important}
 .small-button{padding:8px 10px;border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:5px}
 .small-button.success{color:var(--green);border-color:#c8e4d3}
 .small-button:hover{background:#f0f4ef}

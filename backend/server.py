@@ -441,6 +441,33 @@ async def delete_supplier(
     return {"deleted": True}
 
 
+class SupplierBulkDeleteIn(BaseModel):
+    ids: List[str]
+
+
+@api.post("/suppliers/bulk-delete")
+async def bulk_delete_suppliers(
+    payload: SupplierBulkDeleteIn, user: dict = Depends(require_roles("admin"))
+):
+    if not payload.ids:
+        raise HTTPException(status_code=400, detail="At least one supplier ID is required")
+    oids = []
+    invalid = []
+    for sid in payload.ids:
+        try:
+            oids.append(to_oid(sid))
+        except HTTPException:
+            invalid.append(sid)
+    if not oids:
+        raise HTTPException(status_code=400, detail="No valid supplier IDs provided")
+    result = await db.suppliers.delete_many({"_id": {"$in": oids}})
+    return {
+        "deleted": result.deleted_count,
+        "requested": len(payload.ids),
+        "invalid": invalid,
+    }
+
+
 @api.get("/suppliers/{supplier_id}")
 async def get_supplier(supplier_id: str, user: dict = Depends(get_current_user)):
     doc = await db.suppliers.find_one({"_id": to_oid(supplier_id)})
