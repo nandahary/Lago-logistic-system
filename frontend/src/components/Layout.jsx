@@ -4,13 +4,14 @@ import { useAuth } from "../context/AuthContext";
 import { roleLabels } from "../lib/format";
 import {
   Bell, Menu, LogOut, X, LayoutDashboard, Box, ShoppingCart, Truck, ChevronRight,
-  ClipboardCheck, Calculator, Flame, Coins, Users, UserCog, FileBarChart,
+  ClipboardCheck, Calculator, Flame, Coins, Users, UserCog, FileBarChart, ClipboardList,
 } from "lucide-react";
 
 const BASE_NAV = [
   ["/dashboard", "Overview", LayoutDashboard],
   ["/inventory", "Items", Box],
   ["/suppliers", "Supplier", Users],
+  ["/purchase-requests", "Purchase request", ClipboardList],
   ["/orders", "Purchase order", ShoppingCart],
   ["/receiving", "Receiving", Truck],
   ["/issues", "Stock out", ChevronRight],

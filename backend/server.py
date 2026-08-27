@@ -224,6 +224,54 @@ class POCancelIn(BaseModel):
     reason: str
 
 
+# ==============================================================================
+# Purchase Request (PR) models
+# ==============================================================================
+class PRAttachmentIn(BaseModel):
+    name: str
+    data: str  # base64 data URL (data:image/png;base64,...) or plain base64
+    size: Optional[int] = 0
+
+
+class PRLineIn(BaseModel):
+    item_id: Optional[str] = None
+    sku: Optional[str] = ""
+    name: str
+    category: Optional[str] = ""
+    qty: float
+    unit: str
+    notes: Optional[str] = ""
+
+
+class PRCreateIn(BaseModel):
+    department: str
+    cost_center: Optional[str] = ""
+    required_delivery_date: Optional[str] = None  # ISO date
+    project: Optional[str] = ""
+    priority: str = "medium"  # low | medium | high | urgent
+    notes: Optional[str] = ""
+    items: List[PRLineIn]
+    attachments: List[PRAttachmentIn] = Field(default_factory=list)
+
+
+class PRDecisionIn(BaseModel):
+    comment: Optional[str] = ""
+
+
+class PRConvertItemIn(BaseModel):
+    line_index: int
+    supplier: str
+    price: float
+
+
+class PRConvertIn(BaseModel):
+    lines: List[PRConvertItemIn]
+
+
+class PRConfigIn(BaseModel):
+    approval_flow: List[str]  # list of roles in order
+
+
 class ReceivingLineIn(BaseModel):
     item_id: str
     name: str
@@ -791,6 +839,384 @@ async def cancel_order(
     )
     doc = await db.purchase_orders.find_one({"_id": to_oid(order_id)})
     return serialize_doc(doc)
+
+
+# ==============================================================================
+# Purchase Request (PR) — multi-level approval workflow → converts to PO(s)
+# ==============================================================================
+PR_STATUS_DRAFT = "draft"
+PR_STATUS_PENDING = "pending_approval"
+PR_STATUS_APPROVED = "approved"
+PR_STATUS_REJECTED = "rejected"
+PR_STATUS_RETURNED = "returned"
+PR_STATUS_CONVERTED = "converted"
+
+PR_PRIORITIES = {"low", "medium", "high", "urgent"}
+PR_DEFAULT_FLOW = ["finance"]
+
+
+async def next_pr_number() -> str:
+    count = await db.purchase_requests.count_documents({})
+    return f"PR-{count + 1:04d}"
+
+
+async def get_pr_flow() -> List[str]:
+    cfg = await db.settings.find_one({"_id": "pr_approval_flow"})
+    if not cfg or not cfg.get("value"):
+        return list(PR_DEFAULT_FLOW)
+    return list(cfg["value"])
+
+
+def _pr_can_view(pr: dict, user: dict) -> bool:
+    role = user.get("role")
+    if role == "admin":
+        return True
+    if pr.get("requester_username") == user.get("username"):
+        return True
+    # Approver at any level in the current or historical flow can view
+    if role in (pr.get("approval_flow") or []):
+        return True
+    if role == "purchasing":
+        return True
+    return False
+
+
+@api.get("/pr-config")
+async def get_pr_config(user: dict = Depends(get_current_user)):
+    return {"approval_flow": await get_pr_flow()}
+
+
+@api.put("/pr-config")
+async def set_pr_config(payload: PRConfigIn, user: dict = Depends(require_roles("admin"))):
+    valid_roles = {"admin", "purchasing", "warehouse", "finance"}
+    for r in payload.approval_flow:
+        if r not in valid_roles:
+            raise HTTPException(status_code=400, detail=f"Invalid role '{r}' in approval flow")
+    if not payload.approval_flow:
+        raise HTTPException(status_code=400, detail="Approval flow cannot be empty")
+    await db.settings.update_one(
+        {"_id": "pr_approval_flow"},
+        {"$set": {"value": payload.approval_flow, "updated_at": iso(now_utc())}},
+        upsert=True,
+    )
+    return {"approval_flow": payload.approval_flow}
+
+
+@api.post("/purchase-requests")
+async def create_pr(payload: PRCreateIn, user: dict = Depends(get_current_user)):
+    if payload.priority not in PR_PRIORITIES:
+        raise HTTPException(status_code=400, detail=f"Invalid priority. Allowed: {sorted(PR_PRIORITIES)}")
+    if not payload.department.strip():
+        raise HTTPException(status_code=400, detail="Department is required")
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="At least one line item is required")
+    for i, l in enumerate(payload.items, start=1):
+        if l.qty <= 0:
+            raise HTTPException(status_code=400, detail=f"Line {i}: qty must be > 0")
+        if not l.name.strip():
+            raise HTTPException(status_code=400, detail=f"Line {i}: item name is required")
+    # Basic attachment guard: max 5 files, per-file ≤ 2MB.
+    if len(payload.attachments) > 5:
+        raise HTTPException(status_code=400, detail="Maximum 5 attachments per PR")
+    for a in payload.attachments:
+        if a.size and a.size > 2 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail=f"Attachment '{a.name}' exceeds 2MB limit")
+    flow = await get_pr_flow()
+    doc = {
+        "pr_number": await next_pr_number(),
+        "requester_username": user["username"],
+        "requester_name": user.get("name") or user["username"],
+        "request_date": iso(now_utc()),
+        "department": payload.department.strip(),
+        "cost_center": payload.cost_center or "",
+        "required_delivery_date": payload.required_delivery_date,
+        "project": payload.project or "",
+        "priority": payload.priority,
+        "notes": payload.notes or "",
+        "items": [l.model_dump() for l in payload.items],
+        "attachments": [a.model_dump() for a in payload.attachments],
+        "approval_flow": flow,
+        "current_level": 0,
+        "approvals": [],
+        "status": PR_STATUS_DRAFT,
+        "converted_po_ids": [],
+        "created_at": iso(now_utc()),
+        "updated_at": iso(now_utc()),
+    }
+    res = await db.purchase_requests.insert_one(doc)
+    doc["_id"] = res.inserted_id
+    return serialize_doc(doc)
+
+
+@api.get("/purchase-requests")
+async def list_prs(
+    status_filter: Optional[str] = None,
+    mine: Optional[bool] = False,
+    user: dict = Depends(get_current_user),
+):
+    query: Dict[str, Any] = {}
+    if status_filter:
+        query["status"] = status_filter
+    if mine:
+        query["requester_username"] = user["username"]
+    docs = await db.purchase_requests.find(query).sort("created_at", -1).to_list(500)
+    # Visibility filter — hide draft PRs of other users
+    visible = []
+    for d in docs:
+        if d["status"] == PR_STATUS_DRAFT and d["requester_username"] != user["username"] and user["role"] != "admin":
+            continue
+        visible.append(d)
+    return [serialize_doc(d) for d in visible]
+
+
+@api.get("/purchase-requests/{pr_id}")
+async def get_pr(pr_id: str, user: dict = Depends(get_current_user)):
+    pr = await db.purchase_requests.find_one({"_id": to_oid(pr_id)})
+    if not pr:
+        raise HTTPException(status_code=404, detail="PR not found")
+    if not _pr_can_view(pr, user):
+        raise HTTPException(status_code=403, detail="Not allowed to view this PR")
+    return serialize_doc(pr)
+
+
+@api.put("/purchase-requests/{pr_id}")
+async def update_pr(pr_id: str, payload: PRCreateIn, user: dict = Depends(get_current_user)):
+    pr = await db.purchase_requests.find_one({"_id": to_oid(pr_id)})
+    if not pr:
+        raise HTTPException(status_code=404, detail="PR not found")
+    if pr["requester_username"] != user["username"] and user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only the requester or admin can edit")
+    if pr["status"] not in (PR_STATUS_DRAFT, PR_STATUS_RETURNED):
+        raise HTTPException(
+            status_code=400,
+            detail=f"PR cannot be edited (status: {pr['status']}). Only draft or returned PRs can be edited.",
+        )
+    if payload.priority not in PR_PRIORITIES:
+        raise HTTPException(status_code=400, detail="Invalid priority")
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="At least one line item is required")
+    if len(payload.attachments) > 5:
+        raise HTTPException(status_code=400, detail="Maximum 5 attachments per PR")
+    await db.purchase_requests.update_one(
+        {"_id": to_oid(pr_id)},
+        {
+            "$set": {
+                "department": payload.department.strip(),
+                "cost_center": payload.cost_center or "",
+                "required_delivery_date": payload.required_delivery_date,
+                "project": payload.project or "",
+                "priority": payload.priority,
+                "notes": payload.notes or "",
+                "items": [l.model_dump() for l in payload.items],
+                "attachments": [a.model_dump() for a in payload.attachments],
+                "updated_at": iso(now_utc()),
+            }
+        },
+    )
+    doc = await db.purchase_requests.find_one({"_id": to_oid(pr_id)})
+    return serialize_doc(doc)
+
+
+@api.post("/purchase-requests/{pr_id}/submit")
+async def submit_pr(pr_id: str, user: dict = Depends(get_current_user)):
+    pr = await db.purchase_requests.find_one({"_id": to_oid(pr_id)})
+    if not pr:
+        raise HTTPException(status_code=404, detail="PR not found")
+    if pr["requester_username"] != user["username"] and user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only the requester or admin can submit")
+    if pr["status"] not in (PR_STATUS_DRAFT, PR_STATUS_RETURNED):
+        raise HTTPException(status_code=400, detail=f"PR cannot be submitted (status: {pr['status']})")
+    # Re-fetch the current flow at submit time so late admin changes apply
+    flow = await get_pr_flow()
+    await db.purchase_requests.update_one(
+        {"_id": to_oid(pr_id)},
+        {
+            "$set": {
+                "status": PR_STATUS_PENDING,
+                "approval_flow": flow,
+                "current_level": 0,
+                "approvals": pr.get("approvals", []),
+                "submitted_at": iso(now_utc()),
+                "updated_at": iso(now_utc()),
+            }
+        },
+    )
+    doc = await db.purchase_requests.find_one({"_id": to_oid(pr_id)})
+    return serialize_doc(doc)
+
+
+def _current_approver_role(pr: dict) -> Optional[str]:
+    flow = pr.get("approval_flow") or []
+    lvl = pr.get("current_level", 0)
+    if 0 <= lvl < len(flow):
+        return flow[lvl]
+    return None
+
+
+async def _record_pr_decision(pr: dict, user: dict, decision: str, comment: str) -> dict:
+    """Append the decision to approvals[]. Advance level or terminate as appropriate."""
+    approver_role = _current_approver_role(pr)
+    if not approver_role:
+        raise HTTPException(status_code=400, detail="No pending approval level on this PR")
+    if user["role"] != approver_role and user["role"] != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail=f"Only role '{approver_role}' can decide this level (or admin override)",
+        )
+    if pr["status"] != PR_STATUS_PENDING:
+        raise HTTPException(status_code=400, detail=f"PR is not pending approval (status: {pr['status']})")
+    entry = {
+        "level": pr.get("current_level", 0),
+        "role": approver_role,
+        "decision": decision,
+        "decided_by": user["username"],
+        "comment": (comment or "").strip(),
+        "decided_at": iso(now_utc()),
+    }
+    updates = {"$push": {"approvals": entry}, "$set": {"updated_at": iso(now_utc())}}
+    if decision == "approved":
+        next_level = pr.get("current_level", 0) + 1
+        if next_level >= len(pr.get("approval_flow") or []):
+            updates["$set"]["status"] = PR_STATUS_APPROVED
+            updates["$set"]["approved_at"] = iso(now_utc())
+        else:
+            updates["$set"]["current_level"] = next_level
+    elif decision == "rejected":
+        updates["$set"]["status"] = PR_STATUS_REJECTED
+    elif decision == "returned":
+        updates["$set"]["status"] = PR_STATUS_RETURNED
+        updates["$set"]["current_level"] = 0
+    await db.purchase_requests.update_one({"_id": pr["_id"]}, updates)
+    return await db.purchase_requests.find_one({"_id": pr["_id"]})
+
+
+@api.post("/purchase-requests/{pr_id}/approve")
+async def approve_pr(pr_id: str, payload: PRDecisionIn, user: dict = Depends(get_current_user)):
+    pr = await db.purchase_requests.find_one({"_id": to_oid(pr_id)})
+    if not pr:
+        raise HTTPException(status_code=404, detail="PR not found")
+    doc = await _record_pr_decision(pr, user, "approved", payload.comment or "")
+    return serialize_doc(doc)
+
+
+@api.post("/purchase-requests/{pr_id}/reject")
+async def reject_pr(pr_id: str, payload: PRDecisionIn, user: dict = Depends(get_current_user)):
+    if not payload.comment or not payload.comment.strip():
+        raise HTTPException(status_code=400, detail="Comment is required when rejecting a PR")
+    pr = await db.purchase_requests.find_one({"_id": to_oid(pr_id)})
+    if not pr:
+        raise HTTPException(status_code=404, detail="PR not found")
+    doc = await _record_pr_decision(pr, user, "rejected", payload.comment)
+    return serialize_doc(doc)
+
+
+@api.post("/purchase-requests/{pr_id}/return")
+async def return_pr(pr_id: str, payload: PRDecisionIn, user: dict = Depends(get_current_user)):
+    if not payload.comment or not payload.comment.strip():
+        raise HTTPException(status_code=400, detail="Comment is required when returning a PR")
+    pr = await db.purchase_requests.find_one({"_id": to_oid(pr_id)})
+    if not pr:
+        raise HTTPException(status_code=404, detail="PR not found")
+    doc = await _record_pr_decision(pr, user, "returned", payload.comment)
+    return serialize_doc(doc)
+
+
+@api.post("/purchase-requests/{pr_id}/convert")
+async def convert_pr_to_po(
+    pr_id: str,
+    payload: PRConvertIn,
+    user: dict = Depends(require_roles("purchasing", "admin")),
+):
+    pr = await db.purchase_requests.find_one({"_id": to_oid(pr_id)})
+    if not pr:
+        raise HTTPException(status_code=404, detail="PR not found")
+    if pr["status"] != PR_STATUS_APPROVED:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only fully approved PR can be converted (status: {pr['status']})",
+        )
+    if not payload.lines:
+        raise HTTPException(status_code=400, detail="No lines provided to convert")
+    # Build the vendor → line groups. Every requested line must be represented.
+    groups: Dict[str, List[dict]] = {}
+    seen_indices = set()
+    for l in payload.lines:
+        if l.line_index in seen_indices:
+            raise HTTPException(status_code=400, detail=f"Duplicate line_index {l.line_index}")
+        if l.line_index < 0 or l.line_index >= len(pr["items"]):
+            raise HTTPException(status_code=400, detail=f"Invalid line_index {l.line_index}")
+        if not l.supplier or not l.supplier.strip():
+            raise HTTPException(status_code=400, detail="Supplier is required for every line")
+        if l.price <= 0:
+            raise HTTPException(status_code=400, detail=f"Line {l.line_index}: price must be > 0")
+        seen_indices.add(l.line_index)
+        seller = l.supplier.strip()
+        groups.setdefault(seller, []).append({"line_index": l.line_index, "price": l.price})
+    if len(seen_indices) != len(pr["items"]):
+        raise HTTPException(
+            status_code=400,
+            detail=f"All PR lines must be assigned a vendor (got {len(seen_indices)}/{len(pr['items'])})",
+        )
+    created_pos = []
+    for supplier, mapped in groups.items():
+        po_items = []
+        for m in mapped:
+            src_line = pr["items"][m["line_index"]]
+            # Resolve item_id: prefer the one stored on the PR line, else look up by SKU
+            item_id = src_line.get("item_id")
+            if not item_id and src_line.get("sku"):
+                item_doc = await db.items.find_one({"sku": src_line["sku"]})
+                if item_doc:
+                    item_id = str(item_doc["_id"])
+            if not item_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Line {m['line_index']+1} ({src_line.get('name')}) has no matching item — add it to the item master first",
+                )
+            po_items.append(
+                {
+                    "item_id": item_id,
+                    "name": src_line["name"],
+                    "qty": float(src_line["qty"]),
+                    "unit": src_line.get("unit") or "",
+                    "price": float(m["price"]),
+                    "received_qty": 0,
+                }
+            )
+        total = sum(l["qty"] * l["price"] for l in po_items)
+        po_doc = {
+            "po_number": await next_po_number(),
+            "supplier": supplier,
+            "outlet_code": pr.get("department") or "main_wh",
+            "items": po_items,
+            "total": total,
+            "status": "waiting_approval",
+            "notes": f"Generated from {pr['pr_number']}",
+            "payment_terms": "",
+            "created_by": user["username"],
+            "created_at": iso(now_utc()),
+            "approved_by": None,
+            "approved_at": None,
+            "from_pr_id": str(pr["_id"]),
+            "from_pr_number": pr["pr_number"],
+        }
+        r = await db.purchase_orders.insert_one(po_doc)
+        po_doc["_id"] = r.inserted_id
+        created_pos.append(serialize_doc(po_doc))
+    await db.purchase_requests.update_one(
+        {"_id": pr["_id"]},
+        {
+            "$set": {
+                "status": PR_STATUS_CONVERTED,
+                "converted_po_ids": [p["id"] for p in created_pos],
+                "converted_by": user["username"],
+                "converted_at": iso(now_utc()),
+                "updated_at": iso(now_utc()),
+            }
+        },
+    )
+    return {"pos": created_pos, "count": len(created_pos)}
+
 
 
 # ==============================================================================
@@ -2238,6 +2664,7 @@ async def ensure_indexes():
     await db.suppliers.create_index("code", unique=True)
     await db.items.create_index("sku", unique=True)
     await db.purchase_orders.create_index("po_number", unique=True)
+    await db.purchase_requests.create_index("pr_number", unique=True)
     await db.receivings.create_index("grn_number", unique=True)
     await db.issues.create_index("issue_number", unique=True)
     await db.opnames.create_index("opname_number", unique=True)

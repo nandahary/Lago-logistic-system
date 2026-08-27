@@ -18,6 +18,7 @@ import SuppliersPage from "./pages/SuppliersPage";
 import SupplierDetailPage from "./pages/SupplierDetailPage";
 import ReportsPage from "./pages/ReportsPage";
 import UsersPage from "./pages/UsersPage";
+import PurchaseRequestPage from "./pages/PurchaseRequestPage";
 import { api } from "./lib/api";
 
 function ProtectedShell() {
@@ -60,6 +61,7 @@ function ProtectedShell() {
         <Route path="/inventory" element={<InventoryPage outlet={outletCode} />} />
         <Route path="/suppliers" element={<SuppliersPage />} />
         <Route path="/suppliers/:supplierId" element={<SupplierDetailPage />} />
+        <Route path="/purchase-requests" element={<PurchaseRequestPage />} />
         <Route path="/orders" element={<OrdersPage />} />
         <Route path="/receiving" element={<ReceivingPage />} />
         <Route path="/issues" element={<IssuesPage />} />

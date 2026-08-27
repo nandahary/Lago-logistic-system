@@ -27,11 +27,34 @@ export default function UsersPage() {
   const [modal, setModal] = useState(null); // { mode: "new" | "edit", user }
   const [form, setForm] = useState(defaultForm());
   const [saving, setSaving] = useState(false);
+  const [prFlow, setPrFlow] = useState([]);
+  const [prFlowDraft, setPrFlowDraft] = useState("");
 
   const load = () => api.get("/users").then((r) => setList(r.data));
+  const loadFlow = () =>
+    api.get("/pr-config").then((r) => {
+      setPrFlow(r.data.approval_flow || []);
+      setPrFlowDraft((r.data.approval_flow || []).join(","));
+    });
   useEffect(() => {
     load();
+    loadFlow();
   }, []);
+
+  const savePrFlow = async () => {
+    const roles = prFlowDraft
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    if (roles.length === 0) return toast.error("At least one role is required");
+    try {
+      const { data } = await api.put("/pr-config", { approval_flow: roles });
+      setPrFlow(data.approval_flow);
+      toast.success("PR approval flow updated");
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || err.message);
+    }
+  };
 
   const openNew = () => {
     setForm(defaultForm());
@@ -142,6 +165,36 @@ export default function UsersPage() {
           </div>
         }
       />
+      {current?.role === "admin" && (
+      <section className="panel" data-testid="pr-config-panel">
+        <PanelHead
+          title="Purchase Request approval flow"
+          detail="Configure the sequence of roles required to approve a PR"
+        />
+        <div className="pr-config-row">
+          <div>
+            <p className="eyebrow">Current flow</p>
+            <p className="flow-preview">
+              Requester → {(prFlow.length ? prFlow : ["—"]).map((r) => r.toUpperCase()).join(" → ")}
+            </p>
+          </div>
+          <div style={{ flex: 1 }}>
+            <label className="field">
+              <span>Roles (comma separated) — allowed: admin, purchasing, warehouse, finance</span>
+              <input
+                data-testid="pr-flow-input"
+                value={prFlowDraft}
+                onChange={(e) => setPrFlowDraft(e.target.value)}
+                placeholder="finance"
+              />
+            </label>
+          </div>
+          <button data-testid="pr-flow-save" className="primary-button" onClick={savePrFlow}>
+            <Check size={14} /> Update flow
+          </button>
+        </div>
+      </section>
+      )}
       <section className="panel">
         <div className="toolbar">
           <div className="search-box">

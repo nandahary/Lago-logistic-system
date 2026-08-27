@@ -252,6 +252,95 @@ export function printGRN(grn) {
   openAndPrint(html, `GRN ${grn.grn_number || ""}`);
 }
 
+export function printPurchaseRequest(pr) {
+  const rows = (pr.items || [])
+    .map(
+      (l, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td><strong>${escapeHtml(l.name)}</strong>${l.sku ? `<br/><small>SKU ${escapeHtml(l.sku)}</small>` : ""}</td>
+        <td>${escapeHtml(l.category || "-")}</td>
+        <td class="ta-r">${l.qty} ${escapeHtml(l.unit || "")}</td>
+        <td>${escapeHtml(l.notes || "-")}</td>
+      </tr>`
+    )
+    .join("");
+  const approvals = (pr.approvals || [])
+    .map(
+      (a, i) => `
+      <li>
+        <strong>Level ${a.level + 1} · ${escapeHtml(a.role)} — ${escapeHtml(a.decision)}</strong>
+        <div class="muted">${escapeHtml(a.decided_by)} · ${fmtDate(a.decided_at)}</div>
+        ${a.comment ? `<div>“${escapeHtml(a.comment)}”</div>` : ""}
+      </li>`
+    )
+    .join("");
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+    <title>PR ${escapeHtml(pr.pr_number)}</title>
+    <style>${BASE_STYLES}
+      .approval-list { list-style: none; padding: 0; margin: 12px 0 0; }
+      .approval-list li { padding: 10px 12px; border: 1px solid #d8dedb; border-radius: 4px; margin-bottom: 8px; }
+      .approval-list .muted { color: #7d8a86; font-size: 11px; margin: 2px 0; }
+      .badge-pri { display: inline-block; padding: 3px 10px; border-radius: 999px; background: #eef4f2; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+    </style></head><body>
+    <div class="sheet">
+      <div class="doc-header">
+        <div class="brand">
+          <img src="${LOGO_URL}" alt="Lago Bali" onerror="this.style.display='none'"/>
+          <div>
+            <h2>LAGO BALI</h2>
+            <div class="brand-meta">Inventory · F&amp;B Operations</div>
+          </div>
+        </div>
+        <div class="doc-title">
+          <small>Purchase Request</small>
+          <h1>Request</h1>
+          <div class="doc-no">${escapeHtml(pr.pr_number)}</div>
+        </div>
+      </div>
+      <div class="meta-grid">
+        <div class="meta-block">
+          <h3>Requester</h3>
+          <div class="row"><span>Name</span><strong>${escapeHtml(pr.requester_name || "-")}</strong></div>
+          <div class="row"><span>Username</span><strong>${escapeHtml(pr.requester_username || "-")}</strong></div>
+          <div class="row"><span>Department</span><strong>${escapeHtml(pr.department || "-")}</strong></div>
+          ${pr.cost_center ? `<div class="row"><span>Cost center</span><strong>${escapeHtml(pr.cost_center)}</strong></div>` : ""}
+        </div>
+        <div class="meta-block">
+          <h3>Request information</h3>
+          <div class="row"><span>Requested</span><strong>${fmtDate(pr.request_date)}</strong></div>
+          ${pr.required_delivery_date ? `<div class="row"><span>Required by</span><strong>${fmtDate(pr.required_delivery_date)}</strong></div>` : ""}
+          ${pr.project ? `<div class="row"><span>Project</span><strong>${escapeHtml(pr.project)}</strong></div>` : ""}
+          <div class="row"><span>Priority</span><strong><span class="badge-pri">${escapeHtml(pr.priority)}</span></strong></div>
+          <div class="row"><span>Status</span><strong>${escapeHtml(pr.status)}</strong></div>
+        </div>
+      </div>
+      ${pr.notes ? `<div class="notes"><h4>Remarks</h4>${escapeHtml(pr.notes)}</div>` : ""}
+      <table>
+        <thead><tr><th>#</th><th>Item</th><th>Category</th><th>Qty</th><th>Notes</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="5" style="text-align:center;padding:22px;color:#7d8a86">No items.</td></tr>`}</tbody>
+      </table>
+
+      <div class="notes"><h4>Approval flow — ${(pr.approval_flow || []).map((r) => escapeHtml(r).toUpperCase()).join(" → ")}</h4>
+        <ul class="approval-list">${approvals || "<li>No approval decisions recorded yet.</li>"}</ul>
+      </div>
+
+      <div class="signatures">
+        <div class="sig"><div class="line"></div><div class="name">${escapeHtml(pr.requester_name || "-")}</div><div class="role">Requester</div></div>
+        <div class="sig"><div class="line"></div><div class="name">_______________</div><div class="role">Approver</div></div>
+        <div class="sig"><div class="line"></div><div class="name">_______________</div><div class="role">Purchasing</div></div>
+      </div>
+    </div>
+    <script>window.onload = () => setTimeout(() => window.print(), 200);</script>
+    </body></html>`;
+  const w = window.open("", "_blank", "width=920,height=1200");
+  if (!w) return;
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
+
+
 function escapeHtml(s) {
   return String(s ?? "")
     .replaceAll("&", "&amp;")

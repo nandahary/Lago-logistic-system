@@ -36,6 +36,23 @@ Aplikasi untuk mengontrol inventory perusahaan hotel dan F&B: order barang, pene
 - No sample items / suppliers / transactions (wiped for production readiness)
 
 ## Changelog
+- **2026-08-27 (later)**: Purchase Request (PR) module with multi-level approval → converts to PO(s).
+  - Backend: new `purchase_requests` collection + `settings.pr_approval_flow` doc. 11 new endpoints:
+    - `GET/PUT /api/pr-config` — read/update approval flow (admin), roles allowed: admin/purchasing/warehouse/finance.
+    - `POST /api/purchase-requests` — any authenticated user creates a PR (draft). Validates priority (low/medium/high/urgent), non-empty department, ≥1 item with qty > 0, ≤5 attachments (base64, ≤2MB each).
+    - `GET/GET/PUT /purchase-requests[/{id}]` — list, detail, edit (only when status=draft OR returned; only requester or admin).
+    - `POST /submit` — moves draft/returned → pending_approval; snapshots the current flow.
+    - `POST /approve|/reject|/return` — decision endpoint enforces that the caller role matches the current level's role (or admin override). Reject/Return require a comment. Approve advances the level; final level → approved. Reject → rejected. Return → returned (level reset to 0). All decisions are pushed to `approvals[]` with role/decided_by/comment/decided_at.
+    - `POST /convert` — purchasing/admin. Assign supplier+price to every line; lines with the same supplier merge into one PO. Multiple POs created per PR. Sets PR status → converted, stores `converted_po_ids`. New POs get `from_pr_id`/`from_pr_number` fields.
+  - Frontend:
+    - New page `PurchaseRequestPage` (`/purchase-requests`) with sidebar entry "Purchase request".
+    - PR list table with status badges + "Waiting: role" hint on pending rows.
+    - Create/Edit modal: department, cost center, required delivery date, project/vessel, priority, remarks, line items via `ItemPicker` (typing a name works for items not in master), file attachments (base64 data URL, max 5 × 2MB).
+    - Approve/Reject/Return modal with role-appropriate copy and mandatory comment for reject/return.
+    - Convert modal: per-line supplier (with `<datalist>` from suppliers) + unit price → generates POs grouped by vendor.
+    - Detail view with header grid, line-items table, approval history timeline, attachment list.
+    - Print PR template (Lago logo, header info, line items, approval trail, signature block for Requester/Approver/Purchasing).
+    - Admin-only PR approval flow config panel on User Management page (comma-separated roles).
 - **2026-08-27**: Edit PO + Cancel PO with reason + Edit Item feature.
   - Backend:
     - `PUT /api/orders/{id}` — edit PO only when status=`waiting_approval` (405-esque 400 for any other status). Editable fields: supplier, outlet_code, payment_terms, notes, items[]. Total recomputed on save. Stamps `updated_by`/`updated_at`.
