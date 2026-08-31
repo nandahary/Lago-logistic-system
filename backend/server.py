@@ -135,6 +135,25 @@ def require_roles(*roles: str):
     return checker
 
 
+# All valid account roles. `requestor` is intentionally scoped out of every
+# `require_roles(...)` call in this file (it is never passed as an allowed role),
+# so it's automatically denied from every write endpoint elsewhere without any
+# extra code — the only thing that needs explicit handling is read-only endpoints
+# that accept *any* authenticated user (see `general_access_user` below).
+USER_ROLES = {"admin", "purchasing", "warehouse", "finance", "requestor"}
+
+
+async def general_access_user(user: dict = Depends(get_current_user)) -> dict:
+    """Any authenticated user EXCEPT `requestor`, which is scoped to the Purchase
+    Request module only (create/view/track their own requests) and must not be
+    able to read other modules — items master (needed for the PR item picker) and
+    outlets (shared app-shell reference data) are the only exceptions, so those
+    two list endpoints keep using `get_current_user` directly instead of this."""
+    if user.get("role") == "requestor":
+        raise HTTPException(status_code=403, detail="Requestor role can only access Purchase Requests")
+    return user
+
+
 # ==============================================================================
 # Pydantic Schemas (input)
 # ==============================================================================
@@ -190,6 +209,11 @@ class ItemIn(BaseModel):
     supplier: Optional[str] = ""
     outlet_code: Optional[str] = "main_wh"
     notes: Optional[str] = ""
+    # Direct item: always received straight to the consuming outlet rather than
+    # stocked in the warehouse first. Receiving such an item to a non-warehouse
+    # outlet is recorded as same-day consumption automatically — no separate
+    # stock-out transaction is required. See apply_receiving_line() below.
+    is_direct: bool = False
 
 
 class ItemUpdateIn(BaseModel):
@@ -202,6 +226,7 @@ class ItemUpdateIn(BaseModel):
     supplier: Optional[str] = None
     outlet_code: Optional[str] = None
     notes: Optional[str] = None
+    is_direct: Optional[bool] = None
 
 
 class POLineIn(BaseModel):
@@ -343,7 +368,7 @@ async def register(payload: UserCreateIn, user: dict = Depends(require_roles("ad
     username = normalize_username(payload.username)
     if await db.users.find_one({"username": username}):
         raise HTTPException(status_code=400, detail="Username already registered")
-    if payload.role not in {"admin", "purchasing", "warehouse", "finance"}:
+    if payload.role not in USER_ROLES:
         raise HTTPException(status_code=400, detail="Invalid role")
     if not payload.password or len(payload.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
@@ -381,7 +406,7 @@ async def update_user(
     if payload.name is not None:
         updates["name"] = payload.name
     if payload.role is not None:
-        if payload.role not in {"admin", "purchasing", "warehouse", "finance"}:
+        if payload.role not in USER_ROLES:
             raise HTTPException(status_code=400, detail="Invalid role")
         updates["role"] = payload.role
     if payload.password:
@@ -444,7 +469,7 @@ async def next_supplier_code() -> str:
 
 @api.get("/suppliers")
 async def list_suppliers(
-    search: Optional[str] = None, user: dict = Depends(get_current_user)
+    search: Optional[str] = None, user: dict = Depends(general_access_user)
 ):
     query: Dict[str, Any] = {}
     if search:
@@ -525,7 +550,7 @@ async def bulk_delete_suppliers(
 
 
 @api.get("/suppliers/{supplier_id}")
-async def get_supplier(supplier_id: str, user: dict = Depends(get_current_user)):
+async def get_supplier(supplier_id: str, user: dict = Depends(general_access_user)):
     doc = await db.suppliers.find_one({"_id": to_oid(supplier_id)})
     if not doc:
         raise HTTPException(status_code=404, detail="Supplier not found")
@@ -533,7 +558,7 @@ async def get_supplier(supplier_id: str, user: dict = Depends(get_current_user))
 
 
 @api.get("/suppliers/{supplier_id}/orders")
-async def supplier_orders(supplier_id: str, user: dict = Depends(get_current_user)):
+async def supplier_orders(supplier_id: str, user: dict = Depends(general_access_user)):
     """Return purchase orders that reference this supplier (by name match)."""
     supplier = await db.suppliers.find_one({"_id": to_oid(supplier_id)})
     if not supplier:
@@ -726,7 +751,7 @@ async def next_po_number() -> str:
 
 
 @api.get("/orders")
-async def list_orders(user: dict = Depends(get_current_user)):
+async def list_orders(user: dict = Depends(general_access_user)):
     orders = await db.purchase_orders.find({}).sort("created_at", -1).to_list(500)
     return [serialize_doc(o) for o in orders]
 
@@ -963,7 +988,9 @@ async def list_prs(
     query: Dict[str, Any] = {}
     if status_filter:
         query["status"] = status_filter
-    if mine:
+    # The `requestor` role can only ever see their own PRs — track their own requests,
+    # nothing else — so scope the query regardless of the `mine` flag.
+    if mine or user["role"] == "requestor":
         query["requester_username"] = user["username"]
     docs = await db.purchase_requests.find(query).sort("created_at", -1).to_list(500)
     # Visibility filter — hide draft PRs of other users
@@ -971,6 +998,8 @@ async def list_prs(
     for d in docs:
         if d["status"] == PR_STATUS_DRAFT and d["requester_username"] != user["username"] and user["role"] != "admin":
             continue
+        if user["role"] == "requestor" and d["requester_username"] != user["username"]:
+            continue  # defense in depth on top of the query scope above
         visible.append(d)
     return [serialize_doc(d) for d in visible]
 
@@ -1382,8 +1411,53 @@ async def apply_weighted_average(item_id: str, qty: float, price: float):
     return new_stock, new_cost
 
 
+async def apply_receiving_line(item_id: str, qty: float, price: float, outlet_code: str):
+    """Apply one receiving line's stock/cost effect, honoring the item's `is_direct`
+    flag. A direct item received straight to a non-warehouse outlet is treated as
+    consumed the moment it lands — the weighted-average cost is still updated (so
+    COGS/recipes stay accurate), but the net stock effect is zero, and no separate
+    stock-out transaction is needed. Returns (final_stock, new_cost, direct_consumed)."""
+    item = await db.items.find_one({"_id": to_oid(item_id)}, {"is_direct": 1})
+    if not item:
+        raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
+    new_stock, new_cost = await apply_weighted_average(item_id, qty, price)
+    direct_consumed = bool(item.get("is_direct")) and outlet_code != "main_wh"
+    if direct_consumed:
+        new_stock = new_stock - qty
+        await db.items.update_one(
+            {"_id": to_oid(item_id)},
+            {"$set": {"stock": new_stock, "updated_at": iso(now_utc())}},
+        )
+    return new_stock, new_cost, direct_consumed
+
+
+async def record_direct_consumption(lines: List[dict], outlet_code: str, grn_number: str, user: dict):
+    """Auto-generate a stock-out (issue) record for direct items received on a GRN,
+    so they show up in flash cost / top consumed / stock movement immediately —
+    without anyone having to create a manual stock-out."""
+    if not lines:
+        return None
+    total_cost = sum(l["line_total"] for l in lines)
+    doc = {
+        "issue_number": await next_issue_number(),
+        "from_outlet": "direct",
+        "to_outlet": outlet_code,
+        "items": lines,
+        "total_cost": total_cost,
+        "notes": f"Auto-recorded consumption — direct item(s) received via {grn_number}, no stock-out required",
+        "issued_by": user["username"],
+        "issued_at": iso(now_utc()),
+        "issue_date": now_utc().strftime("%Y-%m-%d"),
+        "auto_generated": True,
+        "source_grn": grn_number,
+    }
+    res = await db.issues.insert_one(doc)
+    doc["_id"] = res.inserted_id
+    return doc
+
+
 @api.get("/receivings")
-async def list_receivings(user: dict = Depends(get_current_user)):
+async def list_receivings(user: dict = Depends(general_access_user)):
     docs = await db.receivings.find({}).sort("received_at", -1).to_list(500)
     return [serialize_doc(d) for d in docs]
 
@@ -1428,15 +1502,34 @@ async def create_receiving(
 
     total = 0.0
     lines_out = []
+    direct_lines = []  # lines auto-consumed because the item is a direct item
     # Apply weighted average + update received_qty on PO line
     for line in payload.items:
-        new_stock, new_cost = await apply_weighted_average(line.item_id, line.qty, line.price)
+        new_stock, new_cost, direct_consumed = await apply_receiving_line(
+            line.item_id, line.qty, line.price, payload.outlet_code
+        )
         po_line = po_lines_by_item[line.item_id]
         po_line["received_qty"] = float(po_line.get("received_qty", 0)) + float(line.qty)
         total += line.qty * line.price
         lines_out.append(
-            {**line.model_dump(), "new_stock": new_stock, "new_avg_cost": new_cost}
+            {
+                **line.model_dump(),
+                "new_stock": new_stock,
+                "new_avg_cost": new_cost,
+                "direct_consumed": direct_consumed,
+            }
         )
+        if direct_consumed:
+            direct_lines.append(
+                {
+                    "item_id": line.item_id,
+                    "name": line.name,
+                    "qty": line.qty,
+                    "unit": line.unit,
+                    "cost_at_issue": new_cost,
+                    "line_total": line.qty * new_cost,
+                }
+            )
 
     # Determine new PO status: fully-received vs partial
     fully_received = all(
@@ -1469,6 +1562,7 @@ async def create_receiving(
     }
     res = await db.receivings.insert_one(doc)
     doc["_id"] = res.inserted_id
+    await record_direct_consumption(direct_lines, payload.outlet_code, doc["grn_number"], user)
     return serialize_doc(doc)
 
 
@@ -1481,7 +1575,7 @@ async def next_issue_number() -> str:
 
 
 @api.get("/issues")
-async def list_issues(user: dict = Depends(get_current_user)):
+async def list_issues(user: dict = Depends(general_access_user)):
     docs = await db.issues.find({}).sort("issued_at", -1).to_list(500)
     return [serialize_doc(d) for d in docs]
 
@@ -1538,7 +1632,7 @@ async def next_opname_number() -> str:
 
 
 @api.get("/opnames")
-async def list_opnames(user: dict = Depends(get_current_user)):
+async def list_opnames(user: dict = Depends(general_access_user)):
     docs = await db.opnames.find({}).sort("created_at", -1).to_list(500)
     return [serialize_doc(d) for d in docs]
 
@@ -1621,7 +1715,7 @@ async def approve_opname(
 async def list_revenues(
     date: Optional[str] = None,
     outlet: Optional[str] = None,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(general_access_user),
 ):
     query: Dict[str, Any] = {}
     if date:
@@ -1657,7 +1751,7 @@ async def upsert_revenue(
 # ==============================================================================
 @api.get("/flash-cost")
 async def flash_cost(
-    date: Optional[str] = None, user: dict = Depends(get_current_user)
+    date: Optional[str] = None, user: dict = Depends(general_access_user)
 ):
     target_date = date or now_utc().strftime("%Y-%m-%d")
     # Aggregate issues by to_outlet on target_date
@@ -1704,7 +1798,7 @@ async def flash_cost(
 # Dashboard summary
 # ==============================================================================
 @api.get("/dashboard")
-async def dashboard(user: dict = Depends(get_current_user)):
+async def dashboard(user: dict = Depends(general_access_user)):
     items = await db.items.find({}).to_list(2000)
     valuation = sum(float(i.get("stock", 0)) * float(i.get("cost", 0)) for i in items)
     low_stock_docs = [i for i in items if float(i.get("stock", 0)) <= float(i.get("min_stock", 0))]
@@ -1775,7 +1869,7 @@ class RecipeIn(BaseModel):
 
 
 @api.get("/recipes")
-async def list_recipes(user: dict = Depends(get_current_user)):
+async def list_recipes(user: dict = Depends(general_access_user)):
     docs = await db.recipes.find({}).sort("name", 1).to_list(500)
     result = []
     for r in docs:
@@ -1833,12 +1927,18 @@ def _num(val, default=0.0) -> float:
         return default
 
 
+def _bool(val, default=False) -> bool:
+    if val is None or val == "":
+        return default
+    return str(val).strip().lower() in {"1", "true", "yes", "y"}
+
+
 @api.post("/items/bulk-upload")
 async def items_bulk_upload(
     file: UploadFile = File(...),
     user: dict = Depends(require_roles("admin", "purchasing", "warehouse")),
 ):
-    """CSV header: name,category,unit,cost,min_stock,stock,supplier,outlet_code[,sku]"""
+    """CSV header: name,category,unit,cost,min_stock,stock,supplier,outlet_code[,sku,is_direct]"""
     content = await file.read()
     rows = _parse_csv(content)
     if not rows:
@@ -1864,6 +1964,7 @@ async def items_bulk_upload(
                 "stock": _num(r.get("stock")),
                 "supplier": r.get("supplier", ""),
                 "outlet_code": r.get("outlet_code", "main_wh") or "main_wh",
+                "is_direct": _bool(r.get("is_direct")),
                 "updated_at": iso(now_utc()),
             }
             existing = await db.items.find_one({"sku": sku})
@@ -1978,7 +2079,9 @@ async def receivings_bulk_upload(
                 if item_doc:
                     po_skus[item_doc["sku"]] = str(item_doc["_id"])
             notes = group[0].get("notes", "")
+            outlet_code = po.get("outlet_code", "main_wh")
             lines, total = [], 0.0
+            direct_lines = []  # lines auto-consumed because the item is a direct item
             for row in group:
                 sku = row.get("item_sku", "").strip()
                 if sku not in po_skus:
@@ -2000,7 +2103,9 @@ async def receivings_bulk_upload(
                         f"Line {row['row']}: qty {qty} exceeds PO {po_number} remainder ({remaining} left)"
                     )
                     continue
-                new_stock, new_cost = await apply_weighted_average(item_id, qty, price)
+                new_stock, new_cost, direct_consumed = await apply_receiving_line(
+                    item_id, qty, price, outlet_code
+                )
                 po_line["received_qty"] = float(po_line.get("received_qty", 0)) + qty
                 total += qty * price
                 lines.append(
@@ -2012,8 +2117,20 @@ async def receivings_bulk_upload(
                         "price": price,
                         "new_stock": new_stock,
                         "new_avg_cost": new_cost,
+                        "direct_consumed": direct_consumed,
                     }
                 )
+                if direct_consumed:
+                    direct_lines.append(
+                        {
+                            "item_id": item_id,
+                            "name": item["name"],
+                            "qty": qty,
+                            "unit": item.get("unit", "pcs"),
+                            "cost_at_issue": new_cost,
+                            "line_total": qty * new_cost,
+                        }
+                    )
             if not lines:
                 continue
             fully_received = all(
@@ -2025,7 +2142,7 @@ async def receivings_bulk_upload(
                 "po_id": str(po["_id"]),
                 "po_number": po["po_number"],
                 "supplier": po.get("supplier", ""),
-                "outlet_code": po.get("outlet_code", "main_wh"),
+                "outlet_code": outlet_code,
                 "items": lines,
                 "total": total,
                 "notes": notes,
@@ -2044,6 +2161,7 @@ async def receivings_bulk_upload(
                     }
                 },
             )
+            await record_direct_consumption(direct_lines, outlet_code, doc["grn_number"], user)
             created += 1
         except HTTPException as e:
             errors.append(f"PO {po_number}: {e.detail}")
@@ -2131,7 +2249,7 @@ async def issues_bulk_upload(
 # Analytics
 # ==============================================================================
 @api.get("/analytics")
-async def analytics(days: int = 7, user: dict = Depends(get_current_user)):
+async def analytics(days: int = 7, user: dict = Depends(general_access_user)):
     """Dashboard analytics: top consumed items, daily flash cost trend,
     category distribution, outlet valuation."""
     days = max(1, min(days, 60))
@@ -2279,7 +2397,7 @@ def _in_window(iso_str: Optional[str], start: Optional[str], end: Optional[str])
 async def report_po_by_supplier(
     start: Optional[str] = None,
     end: Optional[str] = None,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(general_access_user),
 ):
     """Overview Purchase Order per supplier: jumlah PO, nilai total, distribusi status."""
     query: Dict[str, Any] = {}
@@ -2332,7 +2450,7 @@ async def report_po_by_supplier(
 
 
 @api.get("/reports/po-outstanding")
-async def report_po_outstanding(user: dict = Depends(get_current_user)):
+async def report_po_outstanding(user: dict = Depends(general_access_user)):
     """PO yang belum tuntas — status approved/partial dengan sisa qty & nilai."""
     orders = (
         await db.purchase_orders.find({"status": {"$in": ["approved", "partial"]}})
@@ -2391,7 +2509,7 @@ async def report_po_outstanding(user: dict = Depends(get_current_user)):
 async def report_stock_balance(
     outlet: Optional[str] = None,
     category: Optional[str] = None,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(general_access_user),
 ):
     """Saldo stok saat ini per item, dengan valuasi (stock * COGS)."""
     query: Dict[str, Any] = {}
@@ -2436,7 +2554,7 @@ async def report_stock_movement(
     start: Optional[str] = None,
     end: Optional[str] = None,
     item_sku: Optional[str] = None,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(general_access_user),
 ):
     """Kartu stok: gerakan masuk (GRN) & keluar (issue) & adjustment (opname)."""
     # Fetch relevant docs — filter by date/sku
@@ -2536,7 +2654,7 @@ async def report_stock_movement(
 async def report_flash_cost_financial(
     start: Optional[str] = None,
     end: Optional[str] = None,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(general_access_user),
 ):
     """Financial flash-cost per outlet & agregat harian dalam rentang tanggal."""
     today_dt = now_utc().date()
@@ -2626,7 +2744,7 @@ async def report_flash_cost_financial(
 
 
 @api.get("/reports/low-stock")
-async def report_low_stock(user: dict = Depends(get_current_user)):
+async def report_low_stock(user: dict = Depends(general_access_user)):
     """Item dengan stok di atau di bawah min stock."""
     items = await db.items.find({}).to_list(2000)
     rows = []
@@ -2655,7 +2773,7 @@ async def report_low_stock(user: dict = Depends(get_current_user)):
 
 @api.get("/reports/top-consumed")
 async def report_top_consumed(
-    days: int = 30, limit: int = 20, user: dict = Depends(get_current_user)
+    days: int = 30, limit: int = 20, user: dict = Depends(general_access_user)
 ):
     """Item dengan konsumsi tertinggi (issue) selama N hari terakhir."""
     days = max(1, min(days, 365))
@@ -2690,6 +2808,135 @@ async def report_top_consumed(
         "period": {"days": days, "since": since},
         "rows": rows,
         "totals": {"item_count": len(rows), "total_value": sum(r["value"] for r in rows)},
+    }
+
+
+@api.get("/reports/pr-outstanding")
+async def report_pr_outstanding(user: dict = Depends(general_access_user)):
+    """Purchase Requests not yet at a terminal state — still draft, pending
+    approval, approved but not yet converted to a PO, or returned for changes."""
+    outstanding_statuses = [
+        PR_STATUS_DRAFT,
+        PR_STATUS_PENDING,
+        PR_STATUS_APPROVED,
+        PR_STATUS_RETURNED,
+    ]
+    prs = (
+        await db.purchase_requests.find({"status": {"$in": outstanding_statuses}})
+        .sort("created_at", 1)
+        .to_list(1000)
+    )
+    rows = []
+    for p in prs:
+        try:
+            days_open = max(
+                0,
+                (now_utc() - datetime.fromisoformat(p["created_at"].replace("Z", "+00:00"))).days,
+            )
+        except Exception:
+            days_open = None
+        flow = p.get("approval_flow") or []
+        lvl = p.get("current_level", 0)
+        current_approver_role = (
+            flow[lvl] if p["status"] == PR_STATUS_PENDING and 0 <= lvl < len(flow) else None
+        )
+        rows.append(
+            {
+                "id": str(p["_id"]),
+                "pr_number": p.get("pr_number"),
+                "requester_name": p.get("requester_name"),
+                "department": p.get("department"),
+                "priority": p.get("priority"),
+                "status": p.get("status"),
+                "current_approver_role": current_approver_role,
+                "required_delivery_date": p.get("required_delivery_date"),
+                "item_count": len(p.get("items") or []),
+                "created_at": p.get("created_at"),
+                "days_open": days_open,
+            }
+        )
+    by_status: Dict[str, int] = {}
+    by_priority: Dict[str, int] = {}
+    for r in rows:
+        by_status[r["status"]] = by_status.get(r["status"], 0) + 1
+        by_priority[r["priority"]] = by_priority.get(r["priority"], 0) + 1
+    return {
+        "rows": rows,
+        "totals": {"count": len(rows), "by_status": by_status, "by_priority": by_priority},
+    }
+
+
+@api.get("/reports/po-received")
+async def report_po_received(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    user: dict = Depends(general_access_user),
+):
+    """Summary of Purchase Orders that have already been received (fully or
+    partially) — received value vs ordered value, GRN count, and receiving lead
+    time per PO."""
+    query: Dict[str, Any] = {"status": {"$in": ["received", "partial"]}}
+    if start:
+        query.setdefault("created_at", {})["$gte"] = start
+    if end:
+        query.setdefault("created_at", {})["$lte"] = end + "T23:59:59"
+    orders = await db.purchase_orders.find(query).sort("created_at", -1).to_list(2000)
+    po_ids = [str(o["_id"]) for o in orders]
+    grns = await db.receivings.find({"po_id": {"$in": po_ids}}).to_list(5000) if po_ids else []
+    grn_by_po: Dict[str, List[dict]] = {}
+    for g in grns:
+        grn_by_po.setdefault(g["po_id"], []).append(g)
+
+    rows = []
+    for o in orders:
+        pid = str(o["_id"])
+        po_grns = grn_by_po.get(pid, [])
+        received_value = sum(
+            float(l.get("received_qty", 0)) * float(l.get("price", 0)) for l in o.get("items", [])
+        )
+        ordered_value = float(o.get("total", 0))
+        received_dates = [g.get("received_at") for g in po_grns if g.get("received_at")]
+        last_received_at = max(received_dates) if received_dates else None
+        lead_time_days = None
+        if last_received_at:
+            try:
+                created = datetime.fromisoformat(o["created_at"].replace("Z", "+00:00"))
+                received = datetime.fromisoformat(last_received_at.replace("Z", "+00:00"))
+                lead_time_days = max(0, (received - created).days)
+            except Exception:
+                lead_time_days = None
+        rows.append(
+            {
+                "id": pid,
+                "po_number": o.get("po_number"),
+                "supplier": o.get("supplier"),
+                "outlet_code": o.get("outlet_code"),
+                "status": o.get("status"),
+                "ordered_value": ordered_value,
+                "received_value": received_value,
+                "grn_count": len(po_grns),
+                "created_at": o.get("created_at"),
+                "last_received_at": last_received_at,
+                "lead_time_days": lead_time_days,
+            }
+        )
+    total_ordered = sum(r["ordered_value"] for r in rows)
+    total_received = sum(r["received_value"] for r in rows)
+    fully = sum(1 for r in rows if r["status"] == "received")
+    partial = sum(1 for r in rows if r["status"] == "partial")
+    lead_times = [r["lead_time_days"] for r in rows if r["lead_time_days"] is not None]
+    avg_lead = round(sum(lead_times) / len(lead_times), 1) if lead_times else None
+    return {
+        "period": {"start": start, "end": end},
+        "rows": rows,
+        "totals": {
+            "po_count": len(rows),
+            "fully_received": fully,
+            "partially_received": partial,
+            "ordered_value": total_ordered,
+            "received_value": total_received,
+            "avg_lead_time_days": avg_lead,
+        },
     }
 
 
@@ -2739,7 +2986,13 @@ async def seed_data():    # Users
         {"username": "purchasing", "password": "demo123", "name": "Rina (Purchasing)", "role": "purchasing"},
         {"username": "warehouse", "password": "demo123", "name": "Budi (Warehouse)", "role": "warehouse"},
         {"username": "finance", "password": "demo123", "name": "Sari (Finance)", "role": "finance"},
+        {"username": "requestor", "password": "demo123", "name": "Dewi (Requestor)", "role": "requestor"},
     ]
+    # Seed accounts are created ONLY if they don't exist yet. We deliberately never
+    # touch password_hash for an existing user here: this used to re-hash and overwrite
+    # the stored password back to the demo default on every restart whenever it didn't
+    # match, which silently reverted any password change made through the UI. First-run
+    # provisioning only — after that, password changes are the user's own to keep.
     for u in demo_users:
         existing = await db.users.find_one({"username": u["username"]})
         if existing is None:
@@ -2751,11 +3004,6 @@ async def seed_data():    # Users
                     "role": u["role"],
                     "created_at": iso(now_utc()),
                 }
-            )
-        elif not verify_password(u["password"], existing["password_hash"]):
-            await db.users.update_one(
-                {"username": u["username"]},
-                {"$set": {"password_hash": hash_password(u["password"])}},
             )
 
     # Outlets

@@ -27,6 +27,7 @@ export const roleLabels = {
   purchasing: "Purchasing",
   warehouse: "Warehouse",
   finance: "Finance",
+  requestor: "Requestor",
 };
 
 export const statusLabels = {

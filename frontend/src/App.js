@@ -29,13 +29,20 @@ function ProtectedShell() {
   const [pendingPo, setPendingPo] = useState(0);
   const path = location.pathname;
 
+  const isRequestor = user?.role === "requestor";
+  // Requestor is scoped to the Purchase Request module only: no dashboard prefetch,
+  // and any other route falls back to /purchase-requests (see `guard` below).
+  const homePath = isRequestor ? "/purchase-requests" : "/dashboard";
+
   useEffect(() => {
     if (!user) return;
     api.get("/outlets").then((r) => setOutlets(r.data)).catch(() => {});
-    api
-      .get("/dashboard")
-      .then((r) => setPendingPo(r.data.pending_po || 0))
-      .catch(() => {});
+    if (user.role !== "requestor") {
+      api
+        .get("/dashboard")
+        .then((r) => setPendingPo(r.data.pending_po || 0))
+        .catch(() => {});
+    }
   }, [user, path]);
 
   if (loading) {
@@ -49,6 +56,9 @@ function ProtectedShell() {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
+  // Every module outside Purchase Requests is off-limits to the requestor role.
+  const guard = (element) => (isRequestor ? <Navigate to={homePath} replace /> : element);
+
   return (
     <Layout
       outletCode={outletCode}
@@ -57,25 +67,25 @@ function ProtectedShell() {
       pendingPo={pendingPo}
     >
       <Routes>
-        <Route path="/dashboard" element={<Dashboard onNavigateTo={() => {}} />} />
-        <Route path="/inventory" element={<InventoryPage outlet={outletCode} />} />
-        <Route path="/suppliers" element={<SuppliersPage />} />
-        <Route path="/suppliers/:supplierId" element={<SupplierDetailPage />} />
+        <Route path="/dashboard" element={guard(<Dashboard onNavigateTo={() => {}} />)} />
+        <Route path="/inventory" element={guard(<InventoryPage outlet={outletCode} />)} />
+        <Route path="/suppliers" element={guard(<SuppliersPage />)} />
+        <Route path="/suppliers/:supplierId" element={guard(<SupplierDetailPage />)} />
         <Route path="/purchase-requests" element={<PurchaseRequestPage />} />
-        <Route path="/orders" element={<OrdersPage />} />
-        <Route path="/receiving" element={<ReceivingPage />} />
-        <Route path="/issues" element={<IssuesPage />} />
-        <Route path="/opname" element={<OpnamePage />} />
-        <Route path="/hpp" element={<COGSPage />} />
-        <Route path="/revenue" element={<RevenuePage />} />
-        <Route path="/flash" element={<FlashCostPage />} />
-        <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/orders" element={guard(<OrdersPage />)} />
+        <Route path="/receiving" element={guard(<ReceivingPage />)} />
+        <Route path="/issues" element={guard(<IssuesPage />)} />
+        <Route path="/opname" element={guard(<OpnamePage />)} />
+        <Route path="/hpp" element={guard(<COGSPage />)} />
+        <Route path="/revenue" element={guard(<RevenuePage />)} />
+        <Route path="/flash" element={guard(<FlashCostPage />)} />
+        <Route path="/reports" element={guard(<ReportsPage />)} />
         <Route
           path="/users"
-          element={user.role === "admin" ? <UsersPage /> : <Navigate to="/dashboard" replace />}
+          element={user.role === "admin" ? <UsersPage /> : <Navigate to={homePath} replace />}
         />
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/" element={<Navigate to={homePath} replace />} />
+        <Route path="*" element={<Navigate to={homePath} replace />} />
       </Routes>
     </Layout>
   );
@@ -86,7 +96,8 @@ function LoginRoute() {
   const location = useLocation();
   if (loading) return <div className="loading-state">Loading...</div>;
   if (user) {
-    const from = location.state?.from?.pathname || "/dashboard";
+    const defaultHome = user.role === "requestor" ? "/purchase-requests" : "/dashboard";
+    const from = location.state?.from?.pathname || defaultHome;
     return <Navigate to={from} replace />;
   }
   return <Login />;

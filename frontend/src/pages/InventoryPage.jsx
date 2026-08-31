@@ -9,10 +9,10 @@ import { BulkUploadDialog } from "../components/BulkUpload";
 import { useAuth } from "../context/AuthContext";
 
 const ITEMS_TEMPLATE = {
-  headers: ["sku", "name", "category", "unit", "cost", "min_stock", "stock", "supplier", "outlet_code"],
+  headers: ["sku", "name", "category", "unit", "cost", "min_stock", "stock", "supplier", "outlet_code", "is_direct"],
   example: [
-    ["PRT-001", "Fresh ribeye 200g", "Protein", "kg", "225000", "10", "20", "PT Boga Utama", "kitchen"],
-    ["BEV-042", "Mineral water 500ml bottle", "Beverage", "carton", "45000", "20", "40", "CV Aqua", "bar"],
+    ["PRT-001", "Fresh ribeye 200g", "Protein", "kg", "225000", "10", "20", "PT Boga Utama", "kitchen", "false"],
+    ["BEV-042", "Mineral water 500ml bottle", "Beverage", "carton", "45000", "20", "40", "CV Aqua", "bar", "false"],
   ],
 };
 
@@ -62,6 +62,7 @@ export default function InventoryPage({ outlet }) {
       outlet_code: i.outlet_code || "kitchen",
       supplier: i.supplier || "",
       notes: i.notes || "",
+      is_direct: !!i.is_direct,
     });
     setModal("edit");
   };
@@ -84,6 +85,7 @@ export default function InventoryPage({ outlet }) {
           supplier: form.supplier,
           outlet_code: form.outlet_code,
           notes: form.notes || "",
+          is_direct: !!form.is_direct,
         });
         toast.success("Item updated. New price/UOM will apply to future transactions only.");
       } else {
@@ -93,6 +95,7 @@ export default function InventoryPage({ outlet }) {
           cost: Number(form.cost || 0),
           min_stock: Number(form.min_stock || 0),
           stock: Number(form.stock || 0),
+          is_direct: !!form.is_direct,
         });
         toast.success("Item added successfully");
       }
@@ -158,13 +161,14 @@ export default function InventoryPage({ outlet }) {
                 <th>COGS / unit</th>
                 <th>Valuation</th>
                 <th>Supplier</th>
+                <th>Type</th>
                 {canEdit && <th style={{ textAlign: "right" }}>Actions</th>}
               </tr>
             </thead>
             <tbody>
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={canEdit ? 8 : 7} style={{ textAlign: "center", padding: 40 }}>
+                  <td colSpan={canEdit ? 9 : 8} style={{ textAlign: "center", padding: 40 }}>
                     No items yet. Click "Add item" or "Upload CSV".
                   </td>
                 </tr>
@@ -190,6 +194,15 @@ export default function InventoryPage({ outlet }) {
                     <strong>{money(i.stock * i.cost)}</strong>
                   </td>
                   <td>{i.supplier || "-"}</td>
+                  <td>
+                    {i.is_direct ? (
+                      <span title="Received directly to an outlet = counted as consumption immediately, no stock-out needed">
+                        <Badge tone="blue">Direct</Badge>
+                      </span>
+                    ) : (
+                      <small>Stocked</small>
+                    )}
+                  </td>
                   {canEdit && (
                     <td style={{ textAlign: "right" }}>
                       <button
@@ -231,6 +244,22 @@ export default function InventoryPage({ outlet }) {
             )}
             <Field label="Minimum stock" testid="item-min-input" type="number" value={form.min_stock} onChange={(v) => setForm({ ...form, min_stock: v })} />
             <Field label="Price / COGS per unit (IDR)" testid="item-cost-input" type="number" value={form.cost} onChange={(v) => setForm({ ...form, cost: v })} />
+            <label
+              className="field"
+              style={{ gridColumn: "1/-1", flexDirection: "row", alignItems: "center", gap: 8 }}
+            >
+              <input
+                data-testid="item-direct-checkbox"
+                type="checkbox"
+                checked={!!form.is_direct}
+                onChange={(e) => setForm({ ...form, is_direct: e.target.checked })}
+                style={{ width: "auto" }}
+              />
+              <span>
+                Direct item — always received straight to an outlet, counted as consumption
+                immediately (no stock-out needed)
+              </span>
+            </label>
             <label className="field" style={{ gridColumn: "1/-1" }}>
               <span>Item description / notes</span>
               <textarea
@@ -268,6 +297,8 @@ export default function InventoryPage({ outlet }) {
               Use column <b>outlet_code</b>: main_wh, kitchen, bar, housekeeping, dusk, dawn,
               pontoon, beach_house, sundeck, firm, kitchen_dusk, kitchen_boh, office. The{" "}
               <b>sku</b> column is required and must be unique. If the SKU already exists, the item will be updated.
+              Optional column <b>is_direct</b> (true/false) marks an item as always received
+              straight to its outlet and counted as consumption immediately — no stock-out needed.
             </>
           }
           onClose={() => setModal(null)}
@@ -291,5 +322,6 @@ function defaultForm() {
     outlet_code: "kitchen",
     supplier: "",
     notes: "",
+    is_direct: false,
   };
 }

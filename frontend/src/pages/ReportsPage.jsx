@@ -1,10 +1,24 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { toast } from "sonner";
-import { Download, FileBarChart2, Package, TrendingUp, Wallet, ClipboardList, AlertTriangle } from "lucide-react";
+import { Download, FileBarChart2, Package, TrendingUp, Wallet, ClipboardList, AlertTriangle, Inbox } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { money, outletNames, statusLabels, statusTone, formatDate, today } from "../lib/format";
 import { useOutlets } from "../lib/useOutlets";
 import { PageIntro, PanelHead, Badge } from "../components/UI";
+
+const PR_STATUS_LABEL = {
+  draft: "Draft",
+  pending_approval: "Pending approval",
+  approved: "Approved (not yet converted)",
+  returned: "Returned for changes",
+};
+const PR_STATUS_TONE = {
+  draft: "neutral",
+  pending_approval: "amber",
+  approved: "green",
+  returned: "amber",
+};
+const PR_PRIORITY_TONE = { low: "neutral", medium: "blue", high: "amber", urgent: "amber" };
 
 const compactMoney = (v) => {
   const n = Number(v || 0);
@@ -17,6 +31,8 @@ const compactMoney = (v) => {
 const TABS = [
   { id: "po-by-supplier", label: "PO per Supplier", icon: TrendingUp },
   { id: "po-outstanding", label: "PO Outstanding", icon: ClipboardList },
+  { id: "po-received", label: "PO Received Summary", icon: Inbox },
+  { id: "pr-outstanding", label: "PR Outstanding", icon: ClipboardList },
   { id: "stock-balance", label: "Stock Balance", icon: Package },
   { id: "stock-movement", label: "Stock Movement", icon: FileBarChart2 },
   { id: "flash-cost", label: "Flash Cost (Financial)", icon: Wallet },
@@ -65,6 +81,8 @@ export default function ReportsPage() {
       <div className="report-body">
         {tab === "po-by-supplier" && <POBySupplier />}
         {tab === "po-outstanding" && <POOutstanding />}
+        {tab === "po-received" && <POReceived />}
+        {tab === "pr-outstanding" && <PROutstanding />}
         {tab === "stock-balance" && <StockBalance />}
         {tab === "stock-movement" && <StockMovement />}
         {tab === "flash-cost" && <FlashCostFinancial />}
@@ -191,6 +209,98 @@ function POOutstanding() {
           </section>
         ))
       )}
+    </>
+  );
+}
+
+// ============ PO Received Summary ============
+function POReceived() {
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  const [data, setData] = useState(null);
+  const load = () =>
+    api.get("/reports/po-received", { params: { start, end } })
+      .then((r) => setData(r.data))
+      .catch((e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)));
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [start, end]);
+  const download = () => {
+    exportCSV(
+      `po-received-${today()}.csv`,
+      ["No PO", "Supplier", "Outlet", "Status", "Ordered value", "Received value", "GRN count", "Last received", "Lead time (days)"],
+      data.rows.map((r) => [r.po_number, r.supplier, outletNames[r.outlet_code] || r.outlet_code, statusLabels[r.status] || r.status, r.ordered_value, r.received_value, r.grn_count, r.last_received_at ? formatDate(r.last_received_at) : "-", r.lead_time_days ?? "-"])
+    );
+  };
+  if (!data) return <div className="loading-state">Loading...</div>;
+  return (
+    <>
+      <ReportBar>
+        <DateRange start={start} end={end} onStart={setStart} onEnd={setEnd} />
+        <Summary items={[
+          { label: "PO received", value: data.totals.po_count },
+          { label: "Fully received", value: data.totals.fully_received, tone: "green" },
+          { label: "Partially received", value: data.totals.partially_received, tone: "amber" },
+          { label: "Received value", value: money(data.totals.received_value), tone: "teal" },
+          { label: "Avg lead time", value: data.totals.avg_lead_time_days != null ? `${data.totals.avg_lead_time_days}d` : "-" },
+        ]} />
+        <ExportBtn onClick={download} disabled={data.rows.length === 0} />
+      </ReportBar>
+      <ReportTable
+        headers={["PO", "Supplier", "Outlet", "Status", "Ordered value", "Received value", "GRNs", "Last received", "Lead time"]}
+        rows={data.rows.map((r) => [
+          <strong>{r.po_number}</strong>,
+          r.supplier,
+          outletNames[r.outlet_code] || r.outlet_code,
+          <Badge tone={statusTone[r.status]}>{statusLabels[r.status] || r.status}</Badge>,
+          money(r.ordered_value),
+          <strong>{money(r.received_value)}</strong>,
+          r.grn_count,
+          r.last_received_at ? <small>{formatDate(r.last_received_at)}</small> : "-",
+          r.lead_time_days != null ? `${r.lead_time_days}d` : "-",
+        ])}
+      />
+    </>
+  );
+}
+
+// ============ PR Outstanding ============
+function PROutstanding() {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    api.get("/reports/pr-outstanding").then((r) => setData(r.data));
+  }, []);
+  const download = () => {
+    exportCSV(
+      `pr-outstanding-${today()}.csv`,
+      ["PR No.", "Requester", "Department", "Priority", "Status", "Waiting on", "Items", "Required by", "Days open"],
+      data.rows.map((r) => [r.pr_number, r.requester_name, r.department, r.priority, PR_STATUS_LABEL[r.status] || r.status, r.current_approver_role || "-", r.item_count, r.required_delivery_date || "-", r.days_open ?? "-"])
+    );
+  };
+  if (!data) return <div className="loading-state">Loading...</div>;
+  return (
+    <>
+      <ReportBar>
+        <Summary items={[
+          { label: "Outstanding PR", value: data.totals.count },
+          { label: "Pending approval", value: data.totals.by_status.pending_approval || 0, tone: "amber" },
+          { label: "Approved, not converted", value: data.totals.by_status.approved || 0, tone: "green" },
+          { label: "Urgent", value: data.totals.by_priority.urgent || 0, tone: "amber" },
+        ]} />
+        <ExportBtn onClick={download} disabled={data.rows.length === 0} />
+      </ReportBar>
+      <ReportTable
+        headers={["PR No.", "Requester", "Department", "Priority", "Status", "Waiting on", "Items", "Required by", "Days open"]}
+        rows={data.rows.map((r) => [
+          <strong>{r.pr_number}</strong>,
+          r.requester_name,
+          r.department,
+          <Badge tone={PR_PRIORITY_TONE[r.priority]}>{r.priority}</Badge>,
+          <Badge tone={PR_STATUS_TONE[r.status]}>{PR_STATUS_LABEL[r.status] || r.status}</Badge>,
+          r.current_approver_role ? <Badge tone="amber">{r.current_approver_role}</Badge> : "-",
+          r.item_count,
+          r.required_delivery_date || "-",
+          r.days_open != null ? `${r.days_open}d` : "-",
+        ])}
+      />
     </>
   );
 }

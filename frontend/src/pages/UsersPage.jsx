@@ -11,6 +11,7 @@ const ROLE_OPTIONS = [
   { value: "purchasing", label: "Purchasing — create PO" },
   { value: "warehouse", label: "Warehouse — receive, issue, opname" },
   { value: "finance", label: "Finance — approve, revenue, flash cost" },
+  { value: "requestor", label: "Requestor — submit & track own purchase requests only" },
 ];
 
 const roleTone = {
@@ -18,6 +19,7 @@ const roleTone = {
   purchasing: "blue",
   warehouse: "green",
   finance: "neutral",
+  requestor: "blue",
 };
 
 export default function UsersPage() {
@@ -312,6 +314,7 @@ export default function UsersPage() {
                 <li><b>Purchasing</b>: create/edit Purchase Orders, manage suppliers</li>
                 <li><b>Warehouse</b>: receive goods, record issues, stock opname</li>
                 <li><b>Finance</b>: approve PO/opname, input revenue, monitor flash cost</li>
+                <li><b>Requestor</b>: Purchase Request module only — submit requests and track the status of their own requests</li>
               </ul>
             </div>
             <div className="form-actions">

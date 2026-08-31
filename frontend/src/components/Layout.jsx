@@ -35,7 +35,12 @@ export default function Layout({
   const navigate = useNavigate();
   const location = useLocation();
   const [open, setOpen] = React.useState(false);
-  const NAV = user?.role === "admin" ? [...BASE_NAV, ...ADMIN_NAV] : BASE_NAV;
+  const NAV =
+    user?.role === "admin"
+      ? [...BASE_NAV, ...ADMIN_NAV]
+      : user?.role === "requestor"
+      ? BASE_NAV.filter(([path]) => path === "/purchase-requests")
+      : BASE_NAV;
   const active = NAV.find(([p]) => location.pathname.startsWith(p));
   const title = active?.[1] || "Overview";
   const activeId = active ? active[0].slice(1) : "dashboard";

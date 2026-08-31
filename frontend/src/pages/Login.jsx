@@ -8,6 +8,7 @@ const demoAccounts = [
   { label: "Purchasing", username: "purchasing", password: "demo123" },
   { label: "Warehouse", username: "warehouse", password: "demo123" },
   { label: "Finance", username: "finance", password: "demo123" },
+  { label: "Requestor", username: "requestor", password: "demo123" },
 ];
 
 export default function Login() {

@@ -20,6 +20,7 @@ export default function ReceivingPage() {
   const { user } = useAuth();
   const [list, setList] = useState([]);
   const [approvedPOs, setApprovedPOs] = useState([]);
+  const [directItemIds, setDirectItemIds] = useState(() => new Set());
   const [modal, setModal] = useState(null); // "new" | "upload" | null
   const [selectedPO, setSelectedPO] = useState(null); // full PO object
   const [notes, setNotes] = useState("");
@@ -34,10 +35,13 @@ export default function ReceivingPage() {
       // Allow both approved (not yet received) and partially-received POs
       setApprovedPOs(r.data.filter((o) => o.status === "approved" || o.status === "partial"));
     });
+  const loadDirectItems = () =>
+    api.get("/items").then((r) => setDirectItemIds(new Set(r.data.filter((i) => i.is_direct).map((i) => i.id))));
 
   useEffect(() => {
     loadList();
     loadPOs();
+    loadDirectItems();
   }, []);
 
   const openNew = () => {
@@ -67,6 +71,7 @@ export default function ReceivingPage() {
             remaining,
             qty: String(remaining),
             price: String(l.price),
+            isDirect: directItemIds.has(l.item_id),
           };
         }).filter((l) => l.remaining > 0)
       );
@@ -81,6 +86,11 @@ export default function ReceivingPage() {
     setLines(next);
   };
 
+  // Direct items only auto-consume when received straight to a real outlet — a
+  // direct item received into the main warehouse is still stocked normally.
+  const directLineCount =
+    selectedPO && selectedPO.outlet_code !== "main_wh" ? lines.filter((l) => l.isDirect).length : 0;
+
   const submit = async (e) => {
     e.preventDefault();
     if (!selectedPO) return toast.error("Select a Purchase Order first");
@@ -88,7 +98,7 @@ export default function ReceivingPage() {
     if (cleanLines.length === 0) return toast.error("At least 1 item must be received");
     setSaving(true);
     try {
-      await api.post("/receivings", {
+      const { data } = await api.post("/receivings", {
         po_id: selectedPO.id,
         supplier: selectedPO.supplier,
         outlet_code: selectedPO.outlet_code,
@@ -101,7 +111,12 @@ export default function ReceivingPage() {
           price: Number(l.price),
         })),
       });
-      toast.success("Receiving recorded & COGS auto-updated");
+      const directCount = (data.items || []).filter((l) => l.direct_consumed).length;
+      toast.success(
+        directCount > 0
+          ? `Receiving recorded & COGS auto-updated. ${directCount} direct item line(s) recorded as consumption — no stock added.`
+          : "Receiving recorded & COGS auto-updated"
+      );
       setModal(null);
       loadList();
       loadPOs();
@@ -194,6 +209,11 @@ export default function ReceivingPage() {
                   <td>{outletNames[g.outlet_code] || g.outlet_code}</td>
                   <td>
                     {g.items.length} item · {g.items.reduce((s, l) => s + l.qty, 0)} qty
+                    {g.items.some((l) => l.direct_consumed) && (
+                      <small style={{ display: "block" }}>
+                        {g.items.filter((l) => l.direct_consumed).length} direct → consumption
+                      </small>
+                    )}
                   </td>
                   <td><strong>{money(g.total)}</strong></td>
                   <td><small>{formatDate(g.received_at)}</small></td>
@@ -255,6 +275,15 @@ export default function ReceivingPage() {
                 <p className="eyebrow" style={{ marginTop: 18 }}>
                   Line items — remaining (not yet received) quantities shown; adjust if actual received differs
                 </p>
+                {directLineCount > 0 && (
+                  <div className="info-strip" data-testid="direct-item-banner">
+                    <span>
+                      <strong>{directLineCount}</strong> line(s) below are direct items — they'll be recorded as
+                      same-day consumption at {outletNames[selectedPO.outlet_code] || selectedPO.outlet_code} instead
+                      of added to stock. No stock-out needed.
+                    </span>
+                  </div>
+                )}
                 <div className="line-editor">
                   {lines.length === 0 && (
                     <div className="empty-hint">All items on this PO have been fully received.</div>
@@ -263,6 +292,9 @@ export default function ReceivingPage() {
                     <div className="line-row partial" key={idx}>
                       <div className="line-item-label">
                         <strong>{l.name}</strong>
+                        {l.isDirect && selectedPO.outlet_code !== "main_wh" && (
+                          <Badge tone="blue" style={{ marginLeft: 6 }}>Direct → consumption</Badge>
+                        )}
                         <small>
                           Ordered {l.ordered} · Received so far {l.received} · Remaining <b>{l.remaining}</b> {l.unit}
                         </small>
